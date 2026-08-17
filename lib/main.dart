@@ -4911,6 +4911,9 @@ Future<void> _shareProperty(
 
   const appDownloadLink =
       'https://github.com/Mkkhairul/mk-khairul-property-tools/releases/download/v1.0.0-beta/MK-Khairul-property-Tools.apk';
+  
+  const websiteLink =
+    'https://mk-khairul-property-tools.pages.dev/';
 
   final message = '''
 🏡 ${title.isEmpty ? 'PROPERTY FOR SALE / RENT' : title}
@@ -4927,6 +4930,9 @@ $whatsappLink
 
 📱 Download MK KHAIRUL Property Tools:
 $appDownloadLink
+
+🌐 Visit MK KHAIRUL Property Tools:
+$websiteLink
 
 MK KHAIRUL
 SIMPLE. SMART. PROPERTY.
