@@ -1,4 +1,4 @@
-package com.example.mk_khairul_property_tools
+package com.mkkhairul.propertytools
 
 import io.flutter.embedding.android.FlutterActivity
 
