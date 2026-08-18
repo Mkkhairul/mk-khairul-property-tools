@@ -215,6 +215,7 @@ class _DirectPropertyScreenState
   }
 }
 
+
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -5184,17 +5185,72 @@ await SharePlus.instance.share(
     return Scaffold(
       backgroundColor: deepNavy,
       appBar: AppBar(
-        backgroundColor: deepNavy,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        title: const Text(
-          'VIEW PROPERTY',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1,
+  backgroundColor: deepNavy,
+  foregroundColor: Colors.white,
+  elevation: 0,
+
+  leading: IconButton(
+    tooltip: 'Back',
+    icon: const Icon(
+      Icons.arrow_back_rounded,
+      color: Colors.white,
+    ),
+    onPressed: () {
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const HomeScreen(),
           ),
-        ),
+        );
+      }
+    },
+  ),
+
+  title: const Text(
+    'VIEW PROPERTY',
+    style: TextStyle(
+      fontWeight: FontWeight.w900,
+      letterSpacing: 1,
+    ),
+  ),
+  actions: [
+    IconButton(
+  tooltip: 'View More Listings',
+  icon: const Icon(
+    Icons.real_estate_agent_outlined,
+    color: gold,
+  ),
+  onPressed: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const PropertyListingScreen(),
       ),
+    );
+  },
+),
+    IconButton(
+      tooltip: 'Home',
+      icon: const Icon(
+        Icons.home_rounded,
+        color: gold,
+      ),
+      onPressed: () {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const HomeScreen(),
+          ),
+          (route) => false,
+        );
+      },
+    ),
+    const SizedBox(width: 8),
+  ],
+),
       body: Center(
   child: ConstrainedBox(
     constraints: const BoxConstraints(
