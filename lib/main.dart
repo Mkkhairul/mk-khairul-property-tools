@@ -36,7 +36,181 @@ class MKKhairulPropertyToolsApp extends StatelessWidget {
           surface: ivory,
         ),
       ),
-      home: const SplashScreen(),
+      home: kIsWeb &&
+        Uri.base.pathSegments.length >= 2 &&
+        Uri.base.pathSegments.first == 'property'
+    ? DirectPropertyScreen(
+        propertyId: Uri.decodeComponent(
+          Uri.base.pathSegments.sublist(1).join('/'),
+        ),
+      )
+    : const SplashScreen(),
+    );
+  }
+}
+
+class DirectPropertyScreen extends StatefulWidget {
+  final String propertyId;
+
+  const DirectPropertyScreen({
+    super.key,
+    required this.propertyId,
+  });
+
+  @override
+  State<DirectPropertyScreen> createState() =>
+      _DirectPropertyScreenState();
+}
+
+class _DirectPropertyScreenState
+    extends State<DirectPropertyScreen> {
+  static const deepNavy = Color(0xFF03111E);
+  static const gold = Color(0xFFD4AF37);
+
+  static const String listingApiUrl =
+      'https://script.google.com/macros/s/AKfycbxdnJpONtnTjImBtVj02XkpIoj2lMw73DRBQAAPWtwLMIg28w9sP4F4NJps80LAStbd/exec';
+
+  Map<String, dynamic>? property;
+  String? loadError;
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProperty();
+  }
+
+  Future<void> _loadProperty() async {
+    try {
+      final response = await http.get(
+        Uri.parse(listingApiUrl),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Server error: ${response.statusCode}',
+        );
+      }
+
+      final data = jsonDecode(response.body);
+
+      if (data['success'] != true) {
+        throw Exception(
+          data['message'] ?? 'Unable to load property.',
+        );
+      }
+
+      final rawListings = data['listings'] ?? [];
+
+      Map<String, dynamic>? matchedProperty;
+
+      for (final raw in rawListings) {
+        if (raw is! Map) continue;
+
+        final item = Map<String, dynamic>.from(raw);
+
+        final itemId =
+            (item['ID'] ?? '').toString().trim();
+
+        if (itemId.toLowerCase() ==
+            widget.propertyId.trim().toLowerCase()) {
+          matchedProperty = item;
+          break;
+        }
+      }
+
+      if (!mounted) return;
+
+      if (matchedProperty == null) {
+        setState(() {
+          isLoading = false;
+          loadError =
+              'Property "${widget.propertyId}" was not found.';
+        });
+        return;
+      }
+
+      setState(() {
+        property = matchedProperty;
+        isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        isLoading = false;
+        loadError = e.toString();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Scaffold(
+        backgroundColor: deepNavy,
+        body: Center(
+          child: CircularProgressIndicator(
+            color: gold,
+          ),
+        ),
+      );
+    }
+
+    if (property != null) {
+      return PropertyDetailScreen(
+        property: property!,
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: deepNavy,
+      appBar: AppBar(
+        backgroundColor: deepNavy,
+        foregroundColor: Colors.white,
+        title: const Text(
+          'PROPERTY NOT FOUND',
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.search_off_rounded,
+                color: gold,
+                size: 70,
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Property not found',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                loadError ??
+                    'This property may no longer be available.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -4912,8 +5086,8 @@ Future<void> _shareProperty(
   const appDownloadLink =
       'https://github.com/Mkkhairul/mk-khairul-property-tools/releases/download/v1.0.0-beta/MK-Khairul-property-Tools.apk';
   
-  const websiteLink =
-    'https://mk-khairul-property-tools.pages.dev/';
+  final propertyLink =
+    'https://mk-khairul-property-tools.pages.dev/property/${Uri.encodeComponent(id)}';
 
   final message = '''
 🏡 ${title.isEmpty ? 'PROPERTY FOR SALE / RENT' : title}
@@ -4931,8 +5105,8 @@ $whatsappLink
 📱 Download MK KHAIRUL Property Tools:
 $appDownloadLink
 
-🌐 Visit MK KHAIRUL Property Tools:
-$websiteLink
+🔗 VIEW PROPERTY:
+$propertyLink
 
 MK KHAIRUL
 SIMPLE. SMART. PROPERTY.
