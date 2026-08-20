@@ -14,6 +14,22 @@ void main() {
   runApp(const MKKhairulPropertyToolsApp());
 }
 
+void openPage(BuildContext context, Widget page) {
+  Navigator.of(context).push(
+    PageRouteBuilder(
+      transitionDuration: const Duration(milliseconds: 160),
+      reverseTransitionDuration: Duration.zero,
+      pageBuilder: (_, animation, secondaryAnimation) => page,
+      transitionsBuilder: (_, animation, secondaryAnimation, child) {
+        return FadeTransition(
+          opacity: animation,
+          child: child,
+        );
+      },
+    ),
+  );
+}
+
 class MKKhairulPropertyToolsApp extends StatelessWidget {
   const MKKhairulPropertyToolsApp({super.key});
 
@@ -44,7 +60,7 @@ class MKKhairulPropertyToolsApp extends StatelessWidget {
           Uri.base.pathSegments.sublist(1).join('/'),
         ),
       )
-    : const SplashScreen(),
+    : const HomeScreen(),
     );
   }
 }
@@ -230,7 +246,7 @@ class _SplashScreenState extends State<SplashScreen> {
   void initState() {
     super.initState();
 
-    Future.delayed(const Duration(seconds: 2), () {
+    Future.delayed(const Duration(milliseconds: 500), () {
       if (!mounted) return;
 
       Navigator.pushReplacement(
@@ -646,32 +662,28 @@ mainAxisSpacing:
   childAspectRatio:
     isWebDesktop ? 1.35 : 0.90,
               children: [
-                PremiumToolCard(
-                  icon: Icons.account_balance_wallet_outlined,
-                  title: 'HOW MUCH\nCAN I BORROW?',
-                  subtitle: 'Check your loan\neligibility',
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const LoanEligibilityScreen(),
-                      ),
-                    );
-                  },
-                ),
+  PremiumToolCard(
+    icon: Icons.account_balance_wallet_outlined,
+    title: 'HOW MUCH\nCAN I BORROW?',
+    subtitle: 'Check your loan\neligibility',
+    onTap: () {
+      openPage(
+        context,
+        const LoanEligibilityScreen(),
+      );
+    },
+  ),
 
-                PremiumToolCard(
+  PremiumToolCard(
                   icon: Icons.calculate_outlined,
                   title: 'LOAN\nCALCULATOR',
                   subtitle: 'Estimate your\nmonthly instalment',
                   onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const LoanCalculatorScreen(),
-                      ),
-                    );
-                  },
+  openPage(
+    context,
+    const LoanCalculatorScreen(),
+  );
+},
                 ),
 
                 PremiumToolCard(
@@ -679,14 +691,11 @@ mainAxisSpacing:
                   title: 'INVESTMENT\nCALCULATOR',
                   subtitle: 'Calculate yield,\ncash flow & ROI',
                   onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            const InvestmentCalculatorScreen(),
-                      ),
-                    );
-                  },
+  openPage(
+    context,
+    const InvestmentCalculatorScreen(),
+  );
+},
                 ),
 
                 PremiumToolCard(
@@ -694,13 +703,11 @@ mainAxisSpacing:
                   title: 'PROPERTY\nENQUIRY',
                   subtitle: 'Tell us what you\nare looking for',
                   onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const PropertyEnquiryScreen(),
-                      ),
-                    );
-                  },
+  openPage(
+    context,
+    const PropertyEnquiryScreen(),
+  );
+},
                 ),
 
                 PremiumToolCard(
@@ -708,13 +715,11 @@ mainAxisSpacing:
                   title: 'PROPERTY\nGUIDE',
                   subtitle: 'Simple guides for\nsmart buyers',
                   onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const PropertyGuideScreen(),
-                      ),
-                    );
-                  },
+  openPage(
+    context,
+    const PropertyGuideScreen(),
+  );
+},
                 ),
 
                 PremiumToolCard(
@@ -738,13 +743,11 @@ Material(
   clipBehavior: Clip.antiAlias,
   child: InkWell(
     onTap: () {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const PropertyListingScreen(),
-        ),
-      );
-    },
+  openPage(
+    context,
+    const PropertyListingScreen(),
+  );
+},
     child: Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -820,13 +823,11 @@ Material(
   clipBehavior: Clip.antiAlias,
   child: InkWell(
     onTap: () {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const MKClientScreen(),
-        ),
-      );
-    },
+  openPage(
+    context,
+    const MKClientScreen(),
+  );
+},
     child: Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -902,13 +903,11 @@ Material(
   clipBehavior: Clip.antiAlias,
   child: InkWell(
     onTap: () {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const MKHomeHubScreen(),
-        ),
-      );
-    },
+  openPage(
+    context,
+    const MKHomeHubScreen(),
+  );
+},
     child: Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -5278,9 +5277,10 @@ if (imageList.isNotEmpty)
                 children: [
                   Positioned.fill(
                     child: PropertyImageWithWatermark(
-                      imageUrl: imageList[index],
-                      watermarkFontSize: 12,
-                    ),
+                    imageUrl: imageList[index],
+                    fit: BoxFit.contain,
+                    watermarkFontSize: 12,
+                  ),
                   ),
 
                   Positioned(
