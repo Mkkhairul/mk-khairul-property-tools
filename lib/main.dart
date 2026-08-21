@@ -42,6 +42,14 @@ class MKKhairulPropertyToolsApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'MK KHAIRUL Property Tools',
+      scrollBehavior: const MaterialScrollBehavior().copyWith(
+        dragDevices: {
+          PointerDeviceKind.touch,
+          PointerDeviceKind.mouse,
+          PointerDeviceKind.trackpad,
+          PointerDeviceKind.stylus,
+        },
+      ),
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: ivory,
@@ -84,7 +92,7 @@ class _DirectPropertyScreenState
   static const gold = Color(0xFFD4AF37);
 
   static const String listingApiUrl =
-      'https://script.google.com/macros/s/AKfycbxdnJpONtnTjImBtVj02XkpIoj2lMw73DRBQAAPWtwLMIg28w9sP4F4NJps80LAStbd/exec';
+      'https://script.google.com/macros/s/AKfycbyKKrioq22adrb2wpdad3wj6CedlqhLzEomOCkR-AdXcjU75M9pNTTySz5xYBEqN8gb/exec';
 
   Map<String, dynamic>? property;
   String? loadError;
@@ -112,7 +120,7 @@ class _DirectPropertyScreenState
 
       if (data['success'] != true) {
         throw Exception(
-          data['message'] ?? 'Unable to load property.',
+          data['error'] ?? 'Unable to load property.',
         );
       }
 
@@ -3717,7 +3725,7 @@ class _PropertyListingScreenState
 
   final searchController = TextEditingController();
   final String listingApiUrl =
-    'https://script.google.com/macros/s/AKfycbxdnJpONtnTjImBtVj02XkpIoj2lMw73DRBQAAPWtwLMIg28w9sP4F4NJps80LAStbd/exec';
+    'https://script.google.com/macros/s/AKfycbyKKrioq22adrb2wpdad3wj6CedlqhLzEomOCkR-AdXcjU75M9pNTTySz5xYBEqN8gb/exec';
 
 List<dynamic> listings = [];
 
@@ -3757,6 +3765,7 @@ final List<String> propertyTypes = const [
   'Factory',
   'Commercial',
   'Land',
+  'Shoplot',
 ];
 
 @override
@@ -3786,7 +3795,7 @@ Future<void> _loadListings() async {
 
     if (data['success'] != true) {
       throw Exception(
-        data['message'] ?? 'Unable to load listings.',
+        data['error'] ?? 'Unable to load listings.',
       );
     }
 
@@ -3846,6 +3855,53 @@ String _formatMoney(dynamic value) {
     RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
     (match) => '${match[1]},',
   );
+}
+
+String _publicListingPrice(
+  Map<String, dynamic> item,
+) {
+  final raw = _field(item, 'Listing Price');
+
+  if (raw.isNotEmpty) {
+    final compact = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final numericMatch = RegExp(
+      r'^RM\s*([0-9,]+(?:\.[0-9]+)?)$',
+      caseSensitive: false,
+    ).firstMatch(compact);
+
+    if (numericMatch != null) {
+      final numericValue = double.tryParse(
+        numericMatch.group(1)!.replaceAll(',', ''),
+      );
+
+      if (numericValue != null) {
+        return 'RM ${_formatMoney(numericValue)}';
+      }
+    }
+
+    return compact;
+  }
+
+  final currentPrice = _number(item['Current Price']);
+
+  if (currentPrice > 0) {
+    return 'RM ${_formatMoney(currentPrice)}';
+  }
+
+  return 'PRICE ON REQUEST';
+}
+
+bool _usesMaskedPublicPrice(
+  Map<String, dynamic> item,
+) {
+  final category =
+      _field(item, 'Listing Category').toUpperCase();
+  final publicPrice =
+      _field(item, 'Listing Price').toUpperCase();
+
+  return category.startsWith('NEW') ||
+      publicPrice.contains('XX') ||
+      publicPrice.contains('FROM');
 }
 
 List<Map<String, dynamic>> get filteredListings {
@@ -3934,7 +3990,14 @@ Widget _buildListingCard(
   final currentPrice =
       _number(item['Current Price']);
 
+  final displayPrice =
+      _publicListingPrice(item);
+
+  final usesMaskedPublicPrice =
+      _usesMaskedPublicPrice(item);
+
   final hasReduction =
+      !usesMaskedPublicPrice &&
       originalPrice > currentPrice &&
       currentPrice > 0;
 
@@ -4094,9 +4157,7 @@ Widget _buildListingCard(
 
                 // PRICE
                 Text(
-                  currentPrice > 0
-                      ? 'RM ${_formatMoney(currentPrice)}'
-                      : 'PRICE ON REQUEST',
+                  displayPrice,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -4681,25 +4742,25 @@ else ...[
     final double width = constraints.maxWidth;
 
     // PHONE = 2 cards
-    // WEB / DESKTOP = 3 cards
-    final int columns = width >= 900 ? 3 : 2;
+// WEB / DESKTOP = 5 cards
+final int columns = width >= 900 ? 5 : 2;
 
-    final double spacing = width >= 900 ? 18 : 10;
+final double spacing = width >= 900 ? 14 : 10;
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: filteredListings.length,
+return GridView.builder(
+  shrinkWrap: true,
+  physics: const NeverScrollableScrollPhysics(),
+  itemCount: filteredListings.length,
 
-      gridDelegate:
-          SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: columns,
-        crossAxisSpacing: spacing,
-        mainAxisSpacing: spacing,
+  gridDelegate:
+      SliverGridDelegateWithFixedCrossAxisCount(
+    crossAxisCount: columns,
+    crossAxisSpacing: spacing,
+    mainAxisSpacing: spacing,
 
-        // Taller card for property information
-        childAspectRatio: width >= 900 ? 0.72 : 0.62,
-      ),
+    // Taller card for property information
+    childAspectRatio: width >= 900 ? 0.58 : 0.62,
+  ),
 
       itemBuilder: (context, index) {
         final listing = filteredListings[index];
@@ -4874,6 +4935,50 @@ class PropertyDetailScreen extends StatelessWidget {
       RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
       (match) => '${match[1]},',
     );
+  }
+
+  String _publicListingPrice() {
+    final raw = _field('Listing Price');
+
+    if (raw.isNotEmpty) {
+      final compact = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+      final numericMatch = RegExp(
+        r'^RM\s*([0-9,]+(?:\.[0-9]+)?)$',
+        caseSensitive: false,
+      ).firstMatch(compact);
+
+      if (numericMatch != null) {
+        final numericValue = double.tryParse(
+          numericMatch.group(1)!.replaceAll(',', ''),
+        );
+
+        if (numericValue != null) {
+          return 'RM ${_formatMoney(numericValue)}';
+        }
+      }
+
+      return compact;
+    }
+
+    final currentPrice =
+        _number(property['Current Price']);
+
+    if (currentPrice > 0) {
+      return 'RM ${_formatMoney(currentPrice)}';
+    }
+
+    return 'PRICE ON REQUEST';
+  }
+
+  bool _usesMaskedPublicPrice() {
+    final category =
+        _field('Listing Category').toUpperCase();
+    final publicPrice =
+        _field('Listing Price').toUpperCase();
+
+    return category.startsWith('NEW') ||
+        publicPrice.contains('XX') ||
+        publicPrice.contains('FROM');
   }
 
   List<String> get images {
@@ -5077,8 +5182,8 @@ Future<void> _shareProperty(
   final location = _field('Location');
   final state = _field('State');
 
-  final currentPrice =
-      _number(property['Current Price']);
+  final displayPrice =
+      _publicListingPrice();
 
   const whatsappLink =
       'https://wa.me/601153599092';
@@ -5092,7 +5197,7 @@ Future<void> _shareProperty(
   final message = '''
 🏡 ${title.isEmpty ? 'PROPERTY FOR SALE / RENT' : title}
 
-💰 ${currentPrice > 0 ? 'RM ${_formatMoney(currentPrice)}' : 'PRICE ON REQUEST'}
+💰 $displayPrice
 📍 ${[
     location,
     state,
@@ -5168,7 +5273,14 @@ await SharePlus.instance.share(
     final currentPrice =
         _number(property['Current Price']);
 
+    final displayPrice =
+        _publicListingPrice();
+
+    final usesMaskedPublicPrice =
+        _usesMaskedPublicPrice();
+
     final hasReduction =
+        !usesMaskedPublicPrice &&
         originalPrice > currentPrice &&
         currentPrice > 0;
 
@@ -5464,9 +5576,7 @@ return Padding(
                   const SizedBox(height: 4),
 
                 Text(
-                  currentPrice > 0
-                      ? 'RM ${_formatMoney(currentPrice)}'
-                      : 'PRICE ON REQUEST',
+                  displayPrice,
                   style: const TextStyle(
                     color: softGold,
                     fontSize: 28,
