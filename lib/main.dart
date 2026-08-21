@@ -197,21 +197,25 @@ class _DirectPropertyScreenState
         }
       }
 
-      if (!mounted) return;
+if (matchedProperty == null) {
+  setState(() {
+    isLoading = false;
+    loadError =
+        'Property "${widget.propertyId}" was not found.';
+  });
+  return;
+}
 
-      if (matchedProperty == null) {
-        setState(() {
-          isLoading = false;
-          loadError =
-              'Property "${widget.propertyId}" was not found.';
-        });
-        return;
-      }
+setState(() {
+  property = matchedProperty;
+  isLoading = false;
+});
 
-      setState(() {
-        property = matchedProperty;
-        isLoading = false;
-      });
+// Kekalkan clean SEO URL selepas property selesai load
+updateWebPropertyUrl(
+  matchedProperty,
+  replace: true,
+);
     } catch (e) {
       if (!mounted) return;
 
