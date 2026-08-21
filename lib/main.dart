@@ -1242,7 +1242,7 @@ class PremiumToolCard extends StatelessWidget {
               ),
 
               SizedBox(
-                height: isDesktop ? 22 : 14,
+                height: isDesktop ? 14 : 14,
               ),
 
               Text(
@@ -1257,7 +1257,7 @@ class PremiumToolCard extends StatelessWidget {
               ),
 
               SizedBox(
-                height: isDesktop ? 9 : 6,
+                height: isDesktop ? 6 : 6,
               ),
 
               Text(
@@ -1271,7 +1271,7 @@ class PremiumToolCard extends StatelessWidget {
               ),
 
               SizedBox(
-                height: isDesktop ? 14 : 9,
+                height: isDesktop ? 8 : 9,
               ),
 
               Icon(
