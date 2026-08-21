@@ -4,14 +4,61 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:flutter/services.dart' show Clipboard, ClipboardData, SystemNavigator;
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
 
 
 void main() {
+  usePathUrlStrategy();
   runApp(const MKKhairulPropertyToolsApp());
+}
+
+String seoSlugFromText(String value) {
+  return value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+      .replaceAll(RegExp(r'^-+|-+$'), '');
+}
+
+String propertySeoSlug(Map<String, dynamic> item) {
+  // Prefer the SEO slug supplied by Google Sheet/API.
+  for (final key in const [
+    'SEO Slug',
+    'SEO_SLUG',
+    'Seo Slug',
+    'seo_slug',
+    'slug',
+    'Slug',
+  ]) {
+    final value = (item[key] ?? '').toString().trim();
+    if (value.isNotEmpty) return seoSlugFromText(value);
+  }
+
+  // Safe fallback: generate the slug from the listing title.
+  final title = (item['Title'] ?? '').toString().trim();
+  if (title.isNotEmpty) return seoSlugFromText(title);
+
+  // Last fallback keeps old ID-based links working.
+  return seoSlugFromText((item['ID'] ?? '').toString());
+}
+
+void updateWebPropertyUrl(
+  Map<String, dynamic> item, {
+  bool replace = false,
+}) {
+  if (!kIsWeb) return;
+
+  final slug = propertySeoSlug(item);
+  if (slug.isEmpty) return;
+
+  SystemNavigator.routeInformationUpdated(
+    uri: Uri.parse('/property/$slug'),
+    replace: replace,
+  );
 }
 
 void openPage(BuildContext context, Widget page) {
@@ -133,11 +180,18 @@ class _DirectPropertyScreenState
 
         final item = Map<String, dynamic>.from(raw);
 
+        final requested =
+            seoSlugFromText(widget.propertyId);
+
         final itemId =
             (item['ID'] ?? '').toString().trim();
 
-        if (itemId.toLowerCase() ==
-            widget.propertyId.trim().toLowerCase()) {
+        final itemSlug = propertySeoSlug(item);
+
+        // Accept the new SEO URL as well as the old ID URL.
+        if (itemSlug == requested ||
+            itemId.toLowerCase() ==
+                widget.propertyId.trim().toLowerCase()) {
           matchedProperty = item;
           break;
         }
@@ -4012,6 +4066,11 @@ Widget _buildListingCard(
       isDesktop ? 20 : 16,
     ),
     onTap: () {
+      // Web: show a clean, shareable SEO URL such as
+      // /property/hot-new-launch-kapar.
+      // Android: navigation stays exactly as before.
+      updateWebPropertyUrl(item);
+
       Navigator.push(
         context,
         MaterialPageRoute(
