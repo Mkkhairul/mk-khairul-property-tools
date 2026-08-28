@@ -1,15 +1,27 @@
 import 'dart:math';
 import 'dart:convert';
+import 'dart:async';
+import 'dart:ui' show ImageFilter;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/services.dart' show Clipboard, ClipboardData, SystemNavigator;
+import 'package:flutter/services.dart'
+    show
+        Clipboard,
+        ClipboardData,
+        SystemNavigator,
+        TextInputFormatter,
+        FilteringTextInputFormatter,
+        TextEditingValue,
+        TextSelection;
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
-
+import 'package:gal/gal.dart';
 
 void main() {
   usePathUrlStrategy();
@@ -46,10 +58,7 @@ String propertySeoSlug(Map<String, dynamic> item) {
   return seoSlugFromText((item['ID'] ?? '').toString());
 }
 
-void updateWebPropertyUrl(
-  Map<String, dynamic> item, {
-  bool replace = false,
-}) {
+void updateWebPropertyUrl(Map<String, dynamic> item, {bool replace = false}) {
   if (!kIsWeb) return;
 
   final slug = propertySeoSlug(item);
@@ -68,13 +77,47 @@ void openPage(BuildContext context, Widget page) {
       reverseTransitionDuration: Duration.zero,
       pageBuilder: (_, animation, secondaryAnimation) => page,
       transitionsBuilder: (_, animation, secondaryAnimation, child) {
-        return FadeTransition(
-          opacity: animation,
-          child: child,
-        );
+        return FadeTransition(opacity: animation, child: child);
       },
     ),
   );
+}
+
+String formatMoneyValue(dynamic value) {
+  if (value == null) return '';
+
+  String raw = value.toString().trim();
+
+  if (raw.isEmpty) return '';
+
+  final upper = raw.toUpperCase();
+
+  // Kekalkan harga masking / special text.
+  if (upper.contains('XX') ||
+      upper.contains('FROM') ||
+      upper.contains('PRICE ON REQUEST')) {
+    return raw;
+  }
+
+  final cleaned = raw
+      .replaceAll(RegExp(r'RM', caseSensitive: false), '')
+      .replaceAll(',', '')
+      .trim();
+
+  final number = double.tryParse(cleaned);
+
+  if (number == null) {
+    return raw;
+  }
+
+  final rounded = number.round().toString();
+
+  final formatted = rounded.replaceAllMapped(
+    RegExp(r'\B(?=(\d{3})+(?!\d))'),
+    (match) => ',',
+  );
+
+  return 'RM $formatted';
 }
 
 class MKKhairulPropertyToolsApp extends StatelessWidget {
@@ -107,15 +150,16 @@ class MKKhairulPropertyToolsApp extends StatelessWidget {
           surface: ivory,
         ),
       ),
-      home: kIsWeb &&
-        Uri.base.pathSegments.length >= 2 &&
-        Uri.base.pathSegments.first == 'property'
-    ? DirectPropertyScreen(
-        propertyId: Uri.decodeComponent(
-          Uri.base.pathSegments.sublist(1).join('/'),
-        ),
-      )
-    : const HomeScreen(),
+      home:
+          kIsWeb &&
+              Uri.base.pathSegments.length >= 2 &&
+              Uri.base.pathSegments.first == 'property'
+          ? DirectPropertyScreen(
+              propertyId: Uri.decodeComponent(
+                Uri.base.pathSegments.sublist(1).join('/'),
+              ),
+            )
+          : const HomeScreen(),
     );
   }
 }
@@ -123,18 +167,13 @@ class MKKhairulPropertyToolsApp extends StatelessWidget {
 class DirectPropertyScreen extends StatefulWidget {
   final String propertyId;
 
-  const DirectPropertyScreen({
-    super.key,
-    required this.propertyId,
-  });
+  const DirectPropertyScreen({super.key, required this.propertyId});
 
   @override
-  State<DirectPropertyScreen> createState() =>
-      _DirectPropertyScreenState();
+  State<DirectPropertyScreen> createState() => _DirectPropertyScreenState();
 }
 
-class _DirectPropertyScreenState
-    extends State<DirectPropertyScreen> {
+class _DirectPropertyScreenState extends State<DirectPropertyScreen> {
   static const deepNavy = Color(0xFF03111E);
   static const gold = Color(0xFFD4AF37);
 
@@ -153,22 +192,16 @@ class _DirectPropertyScreenState
 
   Future<void> _loadProperty() async {
     try {
-      final response = await http.get(
-        Uri.parse(listingApiUrl),
-      );
+      final response = await http.get(Uri.parse(listingApiUrl));
 
       if (response.statusCode != 200) {
-        throw Exception(
-          'Server error: ${response.statusCode}',
-        );
+        throw Exception('Server error: ${response.statusCode}');
       }
 
       final data = jsonDecode(response.body);
 
       if (data['success'] != true) {
-        throw Exception(
-          data['error'] ?? 'Unable to load property.',
-        );
+        throw Exception(data['error'] ?? 'Unable to load property.');
       }
 
       final rawListings = data['listings'] ?? [];
@@ -180,42 +213,35 @@ class _DirectPropertyScreenState
 
         final item = Map<String, dynamic>.from(raw);
 
-        final requested =
-            seoSlugFromText(widget.propertyId);
+        final requested = seoSlugFromText(widget.propertyId);
 
-        final itemId =
-            (item['ID'] ?? '').toString().trim();
+        final itemId = (item['ID'] ?? '').toString().trim();
 
         final itemSlug = propertySeoSlug(item);
 
         // Accept the new SEO URL as well as the old ID URL.
         if (itemSlug == requested ||
-            itemId.toLowerCase() ==
-                widget.propertyId.trim().toLowerCase()) {
+            itemId.toLowerCase() == widget.propertyId.trim().toLowerCase()) {
           matchedProperty = item;
           break;
         }
       }
 
-if (matchedProperty == null) {
-  setState(() {
-    isLoading = false;
-    loadError =
-        'Property "${widget.propertyId}" was not found.';
-  });
-  return;
-}
+      if (matchedProperty == null) {
+        setState(() {
+          isLoading = false;
+          loadError = 'Property "${widget.propertyId}" was not found.';
+        });
+        return;
+      }
 
-setState(() {
-  property = matchedProperty;
-  isLoading = false;
-});
+      setState(() {
+        property = matchedProperty;
+        isLoading = false;
+      });
 
-// Kekalkan clean SEO URL selepas property selesai load
-updateWebPropertyUrl(
-  matchedProperty,
-  replace: true,
-);
+      // Kekalkan clean SEO URL selepas property selesai load
+      updateWebPropertyUrl(matchedProperty, replace: true);
     } catch (e) {
       if (!mounted) return;
 
@@ -231,18 +257,12 @@ updateWebPropertyUrl(
     if (isLoading) {
       return const Scaffold(
         backgroundColor: deepNavy,
-        body: Center(
-          child: CircularProgressIndicator(
-            color: gold,
-          ),
-        ),
+        body: Center(child: CircularProgressIndicator(color: gold)),
       );
     }
 
     if (property != null) {
-      return PropertyDetailScreen(
-        property: property!,
-      );
+      return PropertyDetailScreen(property: property!);
     }
 
     return Scaffold(
@@ -252,9 +272,7 @@ updateWebPropertyUrl(
         foregroundColor: Colors.white,
         title: const Text(
           'PROPERTY NOT FOUND',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w900),
         ),
       ),
       body: Center(
@@ -263,11 +281,7 @@ updateWebPropertyUrl(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
-                Icons.search_off_rounded,
-                color: gold,
-                size: 70,
-              ),
+              const Icon(Icons.search_off_rounded, color: gold, size: 70),
               const SizedBox(height: 20),
               const Text(
                 'Property not found',
@@ -280,8 +294,7 @@ updateWebPropertyUrl(
               ),
               const SizedBox(height: 10),
               Text(
-                loadError ??
-                    'This property may no longer be available.',
+                loadError ?? 'This property may no longer be available.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: Colors.white70,
@@ -296,7 +309,6 @@ updateWebPropertyUrl(
     );
   }
 }
-
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -317,9 +329,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(
-          builder: (_) => const HomeScreen(),
-        ),
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
       );
     });
   }
@@ -338,6 +348,7 @@ class _SplashScreenState extends State<SplashScreen> {
     );
   }
 }
+
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
@@ -347,16 +358,10 @@ class HomeScreen extends StatelessWidget {
   static const softGold = Color(0xFFF2D675);
 
   Future<void> _openUrl(Uri url) async {
-    final launched = await launchUrl(
-      url,
-      mode: LaunchMode.externalApplication,
-    );
+    final launched = await launchUrl(url, mode: LaunchMode.externalApplication);
 
     if (!launched) {
-      await launchUrl(
-        url,
-        mode: LaunchMode.platformDefault,
-      );
+      await launchUrl(url, mode: LaunchMode.platformDefault);
     }
   }
 
@@ -378,811 +383,1631 @@ Boleh bantu saya?
 
   @override
   Widget build(BuildContext context) {
-    final double screenWidth =
-    MediaQuery.sizeOf(context).width;
+    final double screenWidth = MediaQuery.sizeOf(context).width;
 
-final bool isWebDesktop =
-    kIsWeb && screenWidth >= 900;
+    final bool isWebDesktop = kIsWeb && screenWidth >= 900;
 
     return Scaffold(
       backgroundColor: deepNavy,
       body: SafeArea(
-  child: Center(
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(
-        maxWidth: 1200,
-      ),
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
-          children: [
-// BRAND HEADER - 3 MODE
-isWebDesktop
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1200),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+              children: [
+                // BRAND HEADER - 3 MODE
+                isWebDesktop
+                    // =========================================
+                    // WEB DESKTOP
+                    // =========================================
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 18,
+                        ),
+                        decoration: BoxDecoration(
+                          color: navy,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: const Color(0x55D4AF37)),
+                        ),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 90,
+                              height: 90,
+                              child: Image.asset(
+                                'assets/splash/splash_logo.png',
+                                fit: BoxFit.contain,
+                              ),
+                            ),
 
-    // =========================================
-    // WEB DESKTOP
-    // =========================================
-    ? Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 24,
-          vertical: 18,
-        ),
-        decoration: BoxDecoration(
-          color: navy,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: const Color(0x55D4AF37),
+                            const SizedBox(width: 22),
+
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'MK KHAIRUL',
+                                    style: TextStyle(
+                                      color: softGold,
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 1.8,
+                                    ),
+                                  ),
+
+                                  SizedBox(height: 3),
+
+                                  Text(
+                                    'PROPERTY TOOLS',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 30,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+
+                                  SizedBox(height: 7),
+
+                                  Text(
+                                    'SMART TOOLS. BETTER DECISIONS.',
+                                    style: TextStyle(
+                                      color: softGold,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: gold.withValues(alpha: 0.10),
+                                borderRadius: BorderRadius.circular(30),
+                                border: Border.all(
+                                  color: const Color(0x55D4AF37),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.language_rounded,
+                                    color: gold,
+                                    size: 18,
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'WEB VERSION',
+                                    style: TextStyle(
+                                      color: softGold,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.7,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    // =========================================
+                    // WEB MOBILE
+                    // =========================================
+                    : kIsWeb
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: navy,
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: const Color(0x55D4AF37)),
+                        ),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 68,
+                              height: 68,
+                              child: Image.asset(
+                                'assets/splash/splash_logo.png',
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+
+                            const SizedBox(width: 11),
+
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'MK KHAIRUL',
+                                    maxLines: 1,
+                                    style: TextStyle(
+                                      color: softGold,
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 1.0,
+                                      height: 1.0,
+                                    ),
+                                  ),
+
+                                  SizedBox(height: 5),
+
+                                  Text(
+                                    'PROPERTY TOOLS',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w900,
+                                      height: 1.0,
+                                    ),
+                                  ),
+
+                                  SizedBox(height: 7),
+
+                                  Text(
+                                    'SMART TOOLS. BETTER DECISIONS.',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: softGold,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            const SizedBox(width: 6),
+
+                            Container(
+                              width: 34,
+                              height: 34,
+                              decoration: BoxDecoration(
+                                color: gold.withValues(alpha: 0.10),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: const Color(0x55D4AF37),
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.language_rounded,
+                                color: gold,
+                                size: 17,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    // =====================================
+                    // ANDROID APP - KEKALKAN ASAL
+                    // =====================================
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 100,
+                            height: 100,
+                            child: Image.asset(
+                              'assets/splash/splash_logo.png',
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+
+                          const SizedBox(width: 14),
+
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'MK KHAIRUL',
+                                  style: TextStyle(
+                                    color: softGold,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 1.5,
+                                    height: 1.0,
+                                  ),
+                                ),
+
+                                SizedBox(height: 5),
+
+                                Text(
+                                  'PROPERTY TOOLS',
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 21,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.5,
+                                    height: 1.0,
+                                  ),
+                                ),
+
+                                SizedBox(height: 10),
+
+                                Text(
+                                  'SMART TOOLS. BETTER DECISIONS.',
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    color: softGold,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.5,
+                                    height: 1.0,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(width: 6),
+
+                          const Icon(Icons.menu_rounded, color: gold, size: 28),
+                        ],
+                      ),
+                const SizedBox(height: 10),
+
+                const Divider(color: Color(0x55D4AF37), thickness: 1),
+
+                const SizedBox(height: 18),
+
+                // 6 MAIN TOOLS
+                GridView.count(
+                  crossAxisCount: isWebDesktop ? 3 : 2,
+
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+
+                  crossAxisSpacing: isWebDesktop ? 14 : 12,
+
+                  mainAxisSpacing: isWebDesktop ? 14 : 12,
+
+                  childAspectRatio: isWebDesktop ? 1.35 : 0.90,
+                  children: [
+                    PremiumToolCard(
+                      icon: Icons.account_balance_wallet_outlined,
+                      title: 'HOW MUCH\nCAN I BORROW?',
+                      subtitle: 'Check your loan\neligibility',
+                      onTap: () {
+                        openPage(context, const LoanEligibilityScreen());
+                      },
+                    ),
+
+                    PremiumToolCard(
+                      icon: Icons.calculate_outlined,
+                      title: 'LOAN\nCALCULATOR',
+                      subtitle: 'Estimate your\nmonthly instalment',
+                      onTap: () {
+                        openPage(context, const LoanCalculatorScreen());
+                      },
+                    ),
+
+                    PremiumToolCard(
+                      icon: Icons.trending_up_rounded,
+                      title: 'INVESTMENT\nCALCULATOR',
+                      subtitle: 'Calculate yield,\ncash flow & ROI',
+                      onTap: () {
+                        openPage(context, const InvestmentCalculatorScreen());
+                      },
+                    ),
+
+                    PremiumToolCard(
+                      icon: Icons.forum_outlined,
+                      title: 'PROPERTY\nENQUIRY',
+                      subtitle: 'Tell us what you\nare looking for',
+                      onTap: () {
+                        openPage(context, const PropertyEnquiryScreen());
+                      },
+                    ),
+
+                    PremiumToolCard(
+                      icon: Icons.menu_book_outlined,
+                      title: 'PROPERTY\nGUIDE',
+                      subtitle: 'Simple guides for\nsmart buyers',
+                      onTap: () {
+                        openPage(context, const PropertyGuideScreen());
+                      },
+                    ),
+
+                    PremiumToolCard(
+                      icon: Icons.support_agent_outlined,
+                      title: 'TALK TO\nMK KHAIRUL',
+                      subtitle: 'Connect directly\nwith me',
+                      onTap: _talkToMKKhairul,
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                const SizedBox(height: 14),
+                const SizedBox(height: 14),
+
+                // PROPERTY LISTING - HERO CARD
+                PropertyListingHeroCard(
+                  onTap: () {
+                    openPage(context, const PropertyListingScreen());
+                  },
+                ),
+
+                const SizedBox(height: 14),
+
+                // MK CLIENT
+                Material(
+                  color: navy,
+                  borderRadius: BorderRadius.circular(18),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () {
+                      openPage(context, const MKClientScreen());
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: gold, width: 1.4),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 55,
+                            height: 55,
+                            decoration: BoxDecoration(
+                              color: gold.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(
+                              Icons.people_alt_outlined,
+                              color: gold,
+                              size: 45,
+                            ),
+                          ),
+
+                          const SizedBox(width: 14),
+
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'MK CLIENT',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 1,
+                                  ),
+                                ),
+
+                                SizedBox(height: 4),
+
+                                Text(
+                                  'OWNER  •  TENANT  •  BUYER  •  JOIN US',
+                                  style: TextStyle(
+                                    color: softGold,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.7,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            color: gold,
+                            size: 18,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+                // MK HOME HUB
+                Material(
+                  color: navy,
+                  borderRadius: BorderRadius.circular(18),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () {
+                      openPage(context, const MKHomeHubScreen());
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: gold, width: 1.4),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 55,
+                            height: 55,
+                            decoration: BoxDecoration(
+                              color: gold.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(
+                              Icons.home_work_outlined,
+                              color: gold,
+                              size: 45,
+                            ),
+                          ),
+
+                          const SizedBox(width: 14),
+
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'MK HOME HUB',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 1,
+                                  ),
+                                ),
+
+                                SizedBox(height: 4),
+
+                                Text(
+                                  'ALL YOUR PROPERTY NEEDS',
+                                  style: TextStyle(
+                                    color: softGold,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.7,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            color: gold,
+                            size: 18,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ), // MK CLIENT
+
+                const SizedBox(height: 14),
+
+                // GOOGLE REVIEW
+                Material(
+                  color: navy,
+                  borderRadius: BorderRadius.circular(18),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () async {
+                      final url = Uri.parse(
+                        'https://g.page/r/CV6gyzzygwmKEBM/review',
+                      );
+
+                      final launched = await launchUrl(
+                        url,
+                        mode: LaunchMode.externalApplication,
+                      );
+
+                      if (!launched) {
+                        await launchUrl(url, mode: LaunchMode.platformDefault);
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: gold, width: 1.4),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 55,
+                            height: 55,
+                            decoration: BoxDecoration(
+                              color: gold.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(
+                              Icons.reviews_outlined,
+                              color: gold,
+                              size: 45,
+                            ),
+                          ),
+
+                          const SizedBox(width: 14),
+
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'REVIEW MK KHAIRUL',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+
+                                SizedBox(height: 5),
+
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.star_rounded,
+                                      color: gold,
+                                      size: 18,
+                                    ),
+                                    Icon(
+                                      Icons.star_rounded,
+                                      color: gold,
+                                      size: 18,
+                                    ),
+                                    Icon(
+                                      Icons.star_rounded,
+                                      color: gold,
+                                      size: 18,
+                                    ),
+                                    Icon(
+                                      Icons.star_rounded,
+                                      color: gold,
+                                      size: 18,
+                                    ),
+                                    Icon(
+                                      Icons.star_rounded,
+                                      color: gold,
+                                      size: 18,
+                                    ),
+                                  ],
+                                ),
+
+                                SizedBox(height: 5),
+
+                                Text(
+                                  'Share your experience on Google',
+                                  style: TextStyle(
+                                    color: softGold,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            color: gold,
+                            size: 18,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 22),
+
+                const Center(
+                  child: Text(
+                    'SIMPLE. SMART. PROPERTY.',
+                    style: TextStyle(
+                      color: softGold,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 90,
-              height: 90,
-              child: Image.asset(
-                'assets/splash/splash_logo.png',
-                fit: BoxFit.contain,
-              ),
-            ),
+      ),
+    );
+  }
+}
 
-            const SizedBox(width: 22),
+class PropertyListingHeroCard extends StatefulWidget {
+  final VoidCallback onTap;
 
-            const Expanded(
-              child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'MK KHAIRUL',
-                    style: TextStyle(
-                      color: softGold,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.8,
-                    ),
-                  ),
+  const PropertyListingHeroCard({super.key, required this.onTap});
 
-                  SizedBox(height: 3),
+  @override
+  State<PropertyListingHeroCard> createState() =>
+      _PropertyListingHeroCardState();
+}
 
-                  Text(
-                    'PROPERTY TOOLS',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 30,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
+class _PropertyListingHeroCardState extends State<PropertyListingHeroCard>
+    with SingleTickerProviderStateMixin {
+  static const deepNavy = Color(0xFF03111E);
+  static const gold = Color(0xFFD4AF37);
+  static const softGold = Color(0xFFF2D675);
 
-                  SizedBox(height: 7),
+  static const String listingApiUrl =
+      'https://script.google.com/macros/s/AKfycbyKKrioq22adrb2wpdad3wj6CedlqhLzEomOCkR-AdXcjU75M9pNTTySz5xYBEqN8gb/exec';
 
-                  Text(
-                    'SMART TOOLS. BETTER DECISIONS.',
-                    style: TextStyle(
-                      color: softGold,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+  final PageController _pageController = PageController();
 
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 10,
-              ),
-              decoration: BoxDecoration(
-                color: gold.withValues(
-                  alpha: 0.10,
+  late final AnimationController _glowController;
+  Timer? _slideTimer;
+
+  List<Map<String, dynamic>> listings = [];
+
+  bool isLoading = true;
+  int currentPage = 0;
+  int totalListings = 0;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _glowController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+      lowerBound: 0.25,
+      upperBound: 1.0,
+    )..repeat(reverse: true);
+
+    _loadListings();
+  }
+
+  Future<void> _loadListings() async {
+    try {
+      final response = await http.get(Uri.parse(listingApiUrl));
+
+      if (response.statusCode != 200) {
+        throw Exception('Unable to load listings');
+      }
+
+      final data = jsonDecode(response.body);
+
+      if (data['success'] != true) {
+        throw Exception('Unable to load listings');
+      }
+
+      final rawListings = data['listings'] ?? [];
+
+      final loaded = <Map<String, dynamic>>[];
+
+      for (final raw in rawListings) {
+        if (raw is Map) {
+          loaded.add(Map<String, dynamic>.from(raw));
+        }
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        // Jumlah sebenar dalam database/API.
+        totalListings = loaded.length;
+
+        // Homepage showcase maksimum 35 properties.
+        listings = loaded.take(35).toList();
+
+        isLoading = false;
+        currentPage = 0;
+      });
+
+      _startAutoSlide();
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        isLoading = false;
+      });
+
+      debugPrint('PROPERTY HERO ERROR: $e');
+    }
+  }
+
+  int _itemsPerPage(double width) {
+    // WEB DESKTOP
+    if (width >= 900) {
+      return 5;
+    }
+
+    // TABLET / MEDIUM WEB
+    if (width >= 650) {
+      return 3;
+    }
+
+    // PHONE
+    return 3;
+  }
+
+  int _pageCount(double width) {
+    if (listings.isEmpty) return 0;
+
+    final perPage = _itemsPerPage(width);
+
+    return (listings.length / perPage).ceil();
+  }
+
+  void _startAutoSlide() {
+    _slideTimer?.cancel();
+
+    _slideTimer = Timer.periodic(const Duration(seconds: 6), (_) {
+      if (!mounted || !_pageController.hasClients || listings.isEmpty) {
+        return;
+      }
+
+      final width = MediaQuery.sizeOf(context).width;
+
+      final pages = _pageCount(width);
+
+      if (pages <= 1) return;
+
+      final nextPage = (currentPage + 1) % pages;
+
+      _pageController.animateToPage(
+        nextPage,
+        duration: const Duration(milliseconds: 600),
+        curve: Curves.easeInOutCubic,
+      );
+    });
+  }
+
+  void _previousPage() {
+    if (!_pageController.hasClients) {
+      return;
+    }
+
+    final width = MediaQuery.sizeOf(context).width;
+
+    final pages = _pageCount(width);
+
+    if (pages <= 1) return;
+
+    final previous = currentPage <= 0 ? pages - 1 : currentPage - 1;
+
+    _pageController.animateToPage(
+      previous,
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _nextPage() {
+    if (!_pageController.hasClients) {
+      return;
+    }
+
+    final width = MediaQuery.sizeOf(context).width;
+
+    final pages = _pageCount(width);
+
+    if (pages <= 1) return;
+
+    final next = (currentPage + 1) % pages;
+
+    _pageController.animateToPage(
+      next,
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  String _field(Map<String, dynamic> item, String key) {
+    final value = item[key];
+
+    if (value == null) return '';
+
+    return value.toString().trim();
+  }
+
+  String _firstField(Map<String, dynamic> item, List<String> keys) {
+    for (final key in keys) {
+      final value = _field(item, key);
+
+      if (value.isNotEmpty) {
+        return value;
+      }
+    }
+
+    return '';
+  }
+
+  String _title(Map<String, dynamic> item) {
+    final title = _field(item, 'Title');
+
+    return title.isEmpty ? 'Property Listing' : title;
+  }
+
+  String _price(Map<String, dynamic> item) {
+    final listingPrice = _field(item, 'Listing Price');
+
+    if (listingPrice.isNotEmpty) {
+      return formatMoneyValue(listingPrice);
+    }
+
+    final currentPrice = _field(item, 'Current Price');
+
+    if (currentPrice.isNotEmpty) {
+      return formatMoneyValue(currentPrice);
+    }
+
+    return 'PRICE ON REQUEST';
+  }
+
+  String _location(Map<String, dynamic> item) {
+    return _firstField(item, const ['Location', 'Area', 'State', 'Address']);
+  }
+
+  String _category(Map<String, dynamic> item) {
+    final value = _firstField(item, const [
+      'Listing Category',
+      'Purpose',
+      'Status',
+    ]).toUpperCase();
+
+    if (value.contains('RENT')) {
+      return 'RENT';
+    }
+
+    if (value.contains('NEW')) {
+      return 'NEW';
+    }
+
+    return 'SALE';
+  }
+
+  Color _categoryColor(String category) {
+    switch (category) {
+      case 'RENT':
+        return const Color(0xFF3B82F6);
+
+      case 'NEW':
+        return const Color(0xFF22C55E);
+
+      default:
+        return gold;
+    }
+  }
+
+  Widget _buildPropertyCard(
+    Map<String, dynamic> item, {
+    required bool isDesktop,
+    required bool isPhone,
+  }) {
+    final imageUrl = _field(item, 'Image1');
+
+    final category = _category(item);
+
+    final location = _location(item);
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: widget.onTap,
+        child: Container(
+          decoration: BoxDecoration(
+            color: deepNavy,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0x88D4AF37), width: 1),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ==================================
+              // IMAGE
+              // IMPORTANT:
+              // BoxFit.contain = NO CROPPING
+              // ==================================
+              Expanded(
+                flex: isPhone
+                    ? 8
+                    : isDesktop
+                    ? 11
+                    : 12,
+                child: Container(
+                  width: double.infinity,
+                  color: deepNavy,
+                  child: imageUrl.isNotEmpty
+                      ? Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            // ==================================
+                            // BLURRED BACKGROUND
+                            // Same property image enlarged
+                            // to fill empty space.
+                            // ==================================
+                            ClipRect(
+                              child: ImageFiltered(
+                                imageFilter: ImageFilter.blur(
+                                  sigmaX: 16,
+                                  sigmaY: 16,
+                                ),
+                                child: Transform.scale(
+                                  scale: 1.18,
+                                  child: Image.network(
+                                    imageUrl,
+                                    fit: BoxFit.cover,
+                                    alignment: Alignment.center,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return const ColoredBox(color: deepNavy);
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            // ==================================
+                            // DARK CINEMATIC OVERLAY
+                            // Makes background elegant,
+                            // not distracting.
+                            // ==================================
+                            Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.black.withValues(alpha: 0.18),
+                                    deepNavy.withValues(alpha: 0.34),
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            // ==================================
+                            // SUBTLE SIDE VIGNETTE
+                            // Premium depth around image.
+                            // ==================================
+                            Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                  colors: [
+                                    deepNavy.withValues(alpha: 0.26),
+                                    Colors.transparent,
+                                    Colors.transparent,
+                                    deepNavy.withValues(alpha: 0.26),
+                                  ],
+                                  stops: const [0.0, 0.28, 0.72, 1.0],
+                                ),
+                              ),
+                            ),
+
+                            // ==================================
+                            // ORIGINAL PROPERTY IMAGE
+                            // IMPORTANT:
+                            // BoxFit.contain = NEVER CROP
+                            // ==================================
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 2,
+                                vertical: 2,
+                              ),
+                              child: Image.network(
+                                imageUrl,
+                                fit: BoxFit.contain,
+                                alignment: Alignment.center,
+                                filterQuality: FilterQuality.high,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return const Center(
+                                    child: Icon(
+                                      Icons.home_work_outlined,
+                                      color: gold,
+                                      size: 48,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+
+                            // ==================================
+                            // VERY SUBTLE INNER BORDER
+                            // ==================================
+                            IgnorePointer(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: gold.withValues(alpha: 0.18),
+                                    width: 0.8,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : const Center(
+                          child: Icon(
+                            Icons.home_work_outlined,
+                            color: gold,
+                            size: 48,
+                          ),
+                        ),
                 ),
-                borderRadius:
-                    BorderRadius.circular(30),
-                border: Border.all(
-                  color:
-                      const Color(0x55D4AF37),
-                ),
               ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.language_rounded,
-                    color: gold,
-                    size: 18,
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    'WEB VERSION',
-                    style: TextStyle(
-                      color: softGold,
-                      fontSize: 11,
-                      fontWeight:
-                          FontWeight.w900,
-                      letterSpacing: 0.7,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      )
 
-    // =========================================
-    // WEB MOBILE
-    // =========================================
-    : kIsWeb
-        ? Container(
-            padding:
-                const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 12,
-            ),
-            decoration: BoxDecoration(
-              color: navy,
-              borderRadius:
-                  BorderRadius.circular(18),
-              border: Border.all(
-                color:
-                    const Color(0x55D4AF37),
-              ),
-            ),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 68,
-                  height: 68,
-                  child: Image.asset(
-                    'assets/splash/splash_logo.png',
-                    fit: BoxFit.contain,
+              // ==================================
+              // DETAILS
+              // ==================================
+              Expanded(
+                flex: isPhone
+                    ? 14
+                    : isDesktop
+                    ? 10
+                    : 11,
+                child: Container(
+                  width: double.infinity,
+                  color: deepNavy,
+                  padding: EdgeInsets.fromLTRB(
+                    isPhone ? 7 : 12,
+                    isPhone ? 8 : 11,
+                    isPhone ? 7 : 12,
+                    isPhone ? 8 : 12,
                   ),
-                ),
-
-                const SizedBox(width: 11),
-
-                const Expanded(
                   child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
-                    mainAxisSize:
-                        MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'MK KHAIRUL',
-                        maxLines: 1,
-                        style: TextStyle(
-                          color: softGold,
-                          fontSize: 17,
-                          fontWeight:
-                              FontWeight.w900,
-                          letterSpacing: 1.0,
-                          height: 1.0,
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isPhone ? 5 : 8,
+                          vertical: isPhone ? 3 : 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _categoryColor(category)
+                              .withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: _categoryColor(category)),
+                        ),
+                        child: Text(
+                          category,
+                          style: TextStyle(
+                            color: _categoryColor(category),
+                            fontSize: isPhone
+                                ? 8
+                                : isDesktop
+                                ? 9
+                                : 10,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
 
-                      SizedBox(height: 5),
+                      const SizedBox(height: 8),
 
                       Text(
-                        'PROPERTY TOOLS',
-                        maxLines: 1,
-                        overflow:
-                            TextOverflow.ellipsis,
+                        _title(item),
+                        maxLines: isPhone ? 3 : 2,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 18,
-                          fontWeight:
-                              FontWeight.w900,
-                          height: 1.0,
+                          fontSize: isPhone
+                              ? 10
+                              : isDesktop
+                              ? 13
+                              : 15,
+                          height: 1.18,
+                          fontWeight: FontWeight.w900,
                         ),
                       ),
 
-                      SizedBox(height: 7),
+                      const SizedBox(height: 6),
+
+                      if (location.isNotEmpty)
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.location_on_outlined,
+                              color: softGold,
+                              size: isPhone ? 10 : 14,
+                            ),
+
+                            const SizedBox(width: 4),
+
+                            Expanded(
+                              child: Text(
+                                location,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: isPhone ? 8 : 10,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                      const Spacer(),
 
                       Text(
-                        'SMART TOOLS. BETTER DECISIONS.',
+                        _price(item),
                         maxLines: 1,
-                        overflow:
-                            TextOverflow.ellipsis,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: softGold,
-                          fontSize: 9,
-                          fontWeight:
-                              FontWeight.w800,
-                          letterSpacing: 0.2,
+                          fontSize: isPhone
+                              ? 11
+                              : isDesktop
+                              ? 14
+                              : 16,
+                          fontWeight: FontWeight.w900,
                         ),
                       ),
                     ],
                   ),
                 ),
-
-                const SizedBox(width: 6),
-
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: gold.withValues(
-                      alpha: 0.10,
-                    ),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color:
-                          const Color(0x55D4AF37),
-                    ),
-                  ),
-                  child: const Icon(
-                    Icons.language_rounded,
-                    color: gold,
-                    size: 17,
-                  ),
-                ),
-              ],
-            ),
-          )
-
-        // =====================================
-        // ANDROID APP - KEKALKAN ASAL
-        // =====================================
-        : Row(
-            crossAxisAlignment:
-                CrossAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: 100,
-                height: 100,
-                child: Image.asset(
-                  'assets/splash/splash_logo.png',
-                  fit: BoxFit.contain,
-                ),
-              ),
-
-              const SizedBox(width: 14),
-
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  mainAxisSize:
-                      MainAxisSize.min,
-                  children: [
-                    Text(
-                      'MK KHAIRUL',
-                      style: TextStyle(
-                        color: softGold,
-                        fontSize: 20,
-                        fontWeight:
-                            FontWeight.w900,
-                        letterSpacing: 1.5,
-                        height: 1.0,
-                      ),
-                    ),
-
-                    SizedBox(height: 5),
-
-                    Text(
-                      'PROPERTY TOOLS',
-                      maxLines: 1,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 21,
-                        fontWeight:
-                            FontWeight.w900,
-                        letterSpacing: 0.5,
-                        height: 1.0,
-                      ),
-                    ),
-
-                    SizedBox(height: 10),
-
-                    Text(
-                      'SMART TOOLS. BETTER DECISIONS.',
-                      maxLines: 1,
-                      style: TextStyle(
-                        color: softGold,
-                        fontSize: 12,
-                        fontWeight:
-                            FontWeight.w800,
-                        letterSpacing: 0.5,
-                        height: 1.0,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(width: 6),
-
-              const Icon(
-                Icons.menu_rounded,
-                color: gold,
-                size: 28,
               ),
             ],
           ),
-const SizedBox(height: 10),
-
-const Divider(
-  color: Color(0x55D4AF37),
-  thickness: 1,
-),
-
-const SizedBox(height: 18),
-
-            // 6 MAIN TOOLS
-            GridView.count(
-  crossAxisCount:
-    isWebDesktop ? 3 : 2,
-
-  shrinkWrap: true,
-  physics: const NeverScrollableScrollPhysics(),
-
-  crossAxisSpacing:
-    isWebDesktop ? 14 : 12,
-
-mainAxisSpacing:
-    isWebDesktop ? 14 : 12,
-
-  childAspectRatio:
-    isWebDesktop ? 1.35 : 0.90,
-              children: [
-  PremiumToolCard(
-    icon: Icons.account_balance_wallet_outlined,
-    title: 'HOW MUCH\nCAN I BORROW?',
-    subtitle: 'Check your loan\neligibility',
-    onTap: () {
-      openPage(
-        context,
-        const LoanEligibilityScreen(),
-      );
-    },
-  ),
-
-  PremiumToolCard(
-                  icon: Icons.calculate_outlined,
-                  title: 'LOAN\nCALCULATOR',
-                  subtitle: 'Estimate your\nmonthly instalment',
-                  onTap: () {
-  openPage(
-    context,
-    const LoanCalculatorScreen(),
-  );
-},
-                ),
-
-                PremiumToolCard(
-                  icon: Icons.trending_up_rounded,
-                  title: 'INVESTMENT\nCALCULATOR',
-                  subtitle: 'Calculate yield,\ncash flow & ROI',
-                  onTap: () {
-  openPage(
-    context,
-    const InvestmentCalculatorScreen(),
-  );
-},
-                ),
-
-                PremiumToolCard(
-                  icon: Icons.forum_outlined,
-                  title: 'PROPERTY\nENQUIRY',
-                  subtitle: 'Tell us what you\nare looking for',
-                  onTap: () {
-  openPage(
-    context,
-    const PropertyEnquiryScreen(),
-  );
-},
-                ),
-
-                PremiumToolCard(
-                  icon: Icons.menu_book_outlined,
-                  title: 'PROPERTY\nGUIDE',
-                  subtitle: 'Simple guides for\nsmart buyers',
-                  onTap: () {
-  openPage(
-    context,
-    const PropertyGuideScreen(),
-  );
-},
-                ),
-
-                PremiumToolCard(
-                  icon: Icons.support_agent_outlined,
-                  title: 'TALK TO\nMK KHAIRUL',
-                  subtitle: 'Connect directly\nwith me',
-                  onTap: _talkToMKKhairul,
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-           const SizedBox(height: 14),
-const SizedBox(height: 14),
-
-// PROPERTY LISTING
-Material(
-  color: navy,
-  borderRadius: BorderRadius.circular(18),
-  clipBehavior: Clip.antiAlias,
-  child: InkWell(
-    onTap: () {
-  openPage(
-    context,
-    const PropertyListingScreen(),
-  );
-},
-    child: Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: gold,
-          width: 1.4,
         ),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 55,
-            height: 55,
-            decoration: BoxDecoration(
-              color: gold.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(16),
+    );
+  }
+
+  Widget _buildPage(int pageIndex, double width) {
+    final perPage = _itemsPerPage(width);
+
+    final start = pageIndex * perPage;
+
+    final end = min(start + perPage, listings.length);
+
+    final pageItems = listings.sublist(start, end);
+
+    final isDesktop = width >= 900;
+
+    final isPhone = width < 650;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: List.generate(perPage, (index) {
+        // Last page mungkin tidak cukup
+        // 5 properties.
+        if (index >= pageItems.length) {
+          return const Expanded(child: SizedBox());
+        }
+
+        return Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: index == 0
+                  ? 0
+                  : isPhone
+                  ? 2
+                  : 5,
+              right: index == perPage - 1
+                  ? 0
+                  : isPhone
+                  ? 2
+                  : 5,
             ),
-            child: const Icon(
-              Icons.real_estate_agent_outlined,
-              color: gold,
-              size: 45,
-            ),
-          ),
-
-          const SizedBox(width: 14),
-
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'PROPERTY LISTING',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-
-                SizedBox(height: 5),
-
-                Text(
-                  'LATEST PROPERTIES • SALE • RENT',
-                  style: TextStyle(
-                    color: softGold,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const Icon(
-            Icons.arrow_forward_ios_rounded,
-            color: gold,
-            size: 18,
-          ),
-        ],
-      ),
-    ),
-  ),
-),
-
-const SizedBox(height: 14),
-
-// MK CLIENT
-Material(
-  color: navy,
-  borderRadius: BorderRadius.circular(18),
-  clipBehavior: Clip.antiAlias,
-  child: InkWell(
-    onTap: () {
-  openPage(
-    context,
-    const MKClientScreen(),
-  );
-},
-    child: Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: gold,
-          width: 1.4,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 55,
-            height: 55,
-            decoration: BoxDecoration(
-              color: gold.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(
-              Icons.people_alt_outlined,
-              color: gold,
-              size: 45,
+            child: _buildPropertyCard(
+              pageItems[index],
+              isDesktop: isDesktop,
+              isPhone: isPhone,
             ),
           ),
-
-          const SizedBox(width: 14),
-
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'MK CLIENT',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1,
-                  ),
-                ),
-
-                SizedBox(height: 4),
-
-                Text(
-                  'OWNER  •  TENANT  •  BUYER  •  JOIN US',
-                  style: TextStyle(
-                    color: softGold,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.7,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const Icon(
-            Icons.arrow_forward_ios_rounded,
-            color: gold,
-            size: 18,
-          ),
-        ],
-      ),
-    ),
-  ),
-),
-
-const SizedBox(height: 14),
-// MK HOME HUB
-Material(
-  color: navy,
-  borderRadius: BorderRadius.circular(18),
-  clipBehavior: Clip.antiAlias,
-  child: InkWell(
-    onTap: () {
-  openPage(
-    context,
-    const MKHomeHubScreen(),
-  );
-},
-    child: Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: gold,
-          width: 1.4,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 55,
-            height: 55,
-            decoration: BoxDecoration(
-              color: gold.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(
-              Icons.home_work_outlined,
-              color: gold,
-              size: 45,
-            ),
-          ),
-
-          const SizedBox(width: 14),
-
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'MK HOME HUB',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1,
-                  ),
-                ),
-
-                SizedBox(height: 4),
-
-                Text(
-                  'ALL YOUR PROPERTY NEEDS',
-                  style: TextStyle(
-                    color: softGold,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.7,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const Icon(
-            Icons.arrow_forward_ios_rounded,
-            color: gold,
-            size: 18,
-          ),
-        ],
-      ),
-    ),
-  ),
-), // MK CLIENT
-
-const SizedBox(height: 14),
-
-// GOOGLE REVIEW
-Material(
-  color: navy,
-  borderRadius: BorderRadius.circular(18),
-  clipBehavior: Clip.antiAlias,
-  child: InkWell(
-    onTap: () async {
-      final url = Uri.parse(
-        'https://g.page/r/CV6gyzzygwmKEAE/review',
-      );
-
-      final launched = await launchUrl(
-        url,
-        mode: LaunchMode.externalApplication,
-      );
-
-      if (!launched) {
-        await launchUrl(
-          url,
-          mode: LaunchMode.platformDefault,
         );
-      }
-    },
-    child: Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: gold,
-          width: 1.4,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 55,
-            height: 55,
+      }),
+    );
+  }
+
+  Widget _buildPagination(int pages) {
+    if (pages <= 1) {
+      return const SizedBox.shrink();
+    }
+
+    // Desktop max 35 / 5 =
+    // 7 pages.
+    // Jadi semua dots muat dengan cantik.
+    if (pages <= 10) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: List.generate(pages, (index) {
+          final active = index == currentPage;
+
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            width: active ? 20 : 7,
+            height: 7,
             decoration: BoxDecoration(
-              color: gold.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(14),
+              color: active ? gold : Colors.white24,
+              borderRadius: BorderRadius.circular(20),
             ),
-            child: const Icon(
-              Icons.reviews_outlined,
-              color: gold,
-              size: 45,
-            ),
+          );
+        }),
+      );
+    }
+
+    // Mobile boleh ada banyak pages,
+    // jadi jangan tunjuk 35 dots.
+    return Text(
+      '${currentPage + 1} / $pages',
+      style: const TextStyle(
+        color: softGold,
+        fontSize: 12,
+        fontWeight: FontWeight.w900,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _slideTimer?.cancel();
+    _pageController.dispose();
+    _glowController.dispose();
+
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+
+    final isDesktop = width >= 900;
+
+    final pages = _pageCount(width);
+
+    // Height khas bagi carousel cards.
+    final double carouselHeight = isDesktop
+        ? 315
+        : width >= 650
+        ? 330
+        : 230;
+
+    return AnimatedBuilder(
+      animation: _glowController,
+      builder: (context, child) {
+        final glow = 0.10 + (_glowController.value * 0.20);
+
+        return Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: gold.withValues(alpha: glow),
+                blurRadius: 12 + (_glowController.value * 8),
+                spreadRadius: 0.2,
+              ),
+            ],
           ),
-
-          const SizedBox(width: 14),
-
-          const Expanded(
+          child: Container(
+            padding: EdgeInsets.all(isDesktop ? 20 : 16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: gold, width: 1.5),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF071A2C), Color(0xFF03111E)],
+              ),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'REVIEW MK KHAIRUL',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-
-                SizedBox(height: 5),
-
+                // HEADER
                 Row(
                   children: [
-                    Icon(
-                      Icons.star_rounded,
-                      color: gold,
-                      size: 18,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE94343),
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.circle, color: Colors.white, size: 7),
+                          SizedBox(width: 5),
+                          Text(
+                            'LIVE',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    Icon(
-                      Icons.star_rounded,
-                      color: gold,
-                      size: 18,
+
+                    const SizedBox(width: 10),
+
+                    if (isDesktop)
+                      const Expanded(
+                        child: Text(
+                          'LIVE PROPERTY LISTING',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 21,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      )
+                    else
+                      const Spacer(),
+
+                    if (!isLoading)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: gold.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: const Color(0x66D4AF37)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.home_work_outlined,
+                              color: gold,
+                              size: 15,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '$totalListings LISTINGS',
+                              style: const TextStyle(
+                                color: softGold,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+
+                if (!isDesktop) ...[
+                  const SizedBox(height: 13),
+
+                  const Text(
+                    'LIVE PROPERTY LISTING',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
                     ),
-                    Icon(
-                      Icons.star_rounded,
-                      color: gold,
-                      size: 18,
-                    ),
-                    Icon(
-                      Icons.star_rounded,
-                      color: gold,
-                      size: 18,
-                    ),
-                    Icon(
-                      Icons.star_rounded,
-                      color: gold,
-                      size: 18,
+                  ),
+                ],
+
+                const SizedBox(height: 6),
+
+                const Text(
+                  'Your next property might be here.',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+
+                const SizedBox(height: 14),
+
+                const Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _HeroCategoryPill(text: 'SALE', color: gold),
+                    _HeroCategoryPill(text: 'RENT', color: Color(0xFF3B82F6)),
+                    _HeroCategoryPill(
+                      text: 'NEW PROJECT',
+                      color: Color(0xFF22C55E),
                     ),
                   ],
                 ),
 
-                SizedBox(height: 5),
+                const SizedBox(height: 15),
 
-                Text(
-                  'Share your experience on Google',
-                  style: TextStyle(
-                    color: softGold,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                // =============================
+                // 5 PROPERTY CARDS PER PAGE
+                // =============================
+                if (isLoading)
+                  SizedBox(
+                    height: carouselHeight,
+                    child: const Center(
+                      child: CircularProgressIndicator(
+                        color: gold,
+                        strokeWidth: 2,
+                      ),
+                    ),
+                  )
+                else if (listings.isNotEmpty)
+                  SizedBox(
+                    height: carouselHeight,
+                    child: PageView.builder(
+                      controller: _pageController,
+                      itemCount: pages,
+                      onPageChanged: (index) {
+                        setState(() {
+                          currentPage = index;
+                        });
+                      },
+                      itemBuilder: (context, pageIndex) {
+                        return _buildPage(pageIndex, width);
+                      },
+                    ),
+                  )
+                else
+                  Container(
+                    height: 130,
+                    alignment: Alignment.center,
+                    child: const Text(
+                      'Explore our latest properties.',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  ),
+
+                if (pages > 1) ...[
+                  const SizedBox(height: 15),
+
+                  // LEFT / DOTS / RIGHT
+                  Row(
+                    children: [
+                      _HeroArrowButton(
+                        icon: Icons.arrow_back_ios_new_rounded,
+                        onTap: _previousPage,
+                      ),
+
+                      Expanded(child: Center(child: _buildPagination(pages))),
+
+                      _HeroArrowButton(
+                        icon: Icons.arrow_forward_ios_rounded,
+                        onTap: _nextPage,
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 6),
+
+                  Center(
+                    child: Text(
+                      '${currentPage + 1} / $pages',
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 15),
+
+                // EXPLORE BUTTON
+                Material(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: widget.onTap,
+                    child: Ink(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFF2D675), Color(0xFFD4AF37)],
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'EXPLORE LISTINGS',
+                            style: TextStyle(
+                              color: deepNavy,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                          SizedBox(width: 10),
+                          Icon(
+                            Icons.arrow_forward_rounded,
+                            color: deepNavy,
+                            size: 20,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
+        );
+      },
+    );
+  }
+}
 
-          const Icon(
-            Icons.arrow_forward_ios_rounded,
-            color: gold,
-            size: 18,
-          ),
-        ],
+class _HeroCategoryPill extends StatelessWidget {
+  final String text;
+  final Color color;
+
+  const _HeroCategoryPill({required this.text, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: color.withValues(alpha: 0.80)),
       ),
-    ),
-  ),
-),
-
-          const SizedBox(height: 22),
-
-          const Center(
-            child: Text(
-              'SIMPLE. SMART. PROPERTY.',
-              style: TextStyle(
-                color: softGold,
-                fontSize: 14,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 5,
-              ),
-            ),
-          ),
-                            ],
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 9,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.5,
         ),
       ),
-    ),
-  ),
-);
+    );
+  }
+}
+
+class _HeroArrowButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _HeroArrowButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFF03111E),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: const Color(0xFFD4AF37)),
+          ),
+          child: Icon(icon, color: const Color(0xFFF2D675), size: 18),
+        ),
+      ),
+    );
   }
 }
 
@@ -1204,7 +2029,7 @@ class PremiumToolCard extends StatelessWidget {
   static const gold = Color(0xFFD4AF37);
   static const softGold = Color(0xFFF2D675);
 
-    @override
+  @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.sizeOf(context).width;
 
@@ -1231,23 +2056,14 @@ class PremiumToolCard extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: gold,
-              width: 1.25,
-            ),
+            border: Border.all(color: gold, width: 1.25),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                icon,
-                color: gold,
-                size: iconSize,
-              ),
+              Icon(icon, color: gold, size: iconSize),
 
-              SizedBox(
-                height: isDesktop ? 14 : 14,
-              ),
+              SizedBox(height: isDesktop ? 14 : 14),
 
               Text(
                 title,
@@ -1260,9 +2076,7 @@ class PremiumToolCard extends StatelessWidget {
                 ),
               ),
 
-              SizedBox(
-                height: isDesktop ? 6 : 6,
-              ),
+              SizedBox(height: isDesktop ? 6 : 6),
 
               Text(
                 subtitle,
@@ -1274,9 +2088,7 @@ class PremiumToolCard extends StatelessWidget {
                 ),
               ),
 
-              SizedBox(
-                height: isDesktop ? 8 : 9,
-              ),
+              SizedBox(height: isDesktop ? 8 : 9),
 
               Icon(
                 Icons.arrow_forward_rounded,
@@ -1290,6 +2102,7 @@ class PremiumToolCard extends StatelessWidget {
     );
   }
 }
+
 class MKClientScreen extends StatelessWidget {
   const MKClientScreen({super.key});
 
@@ -1308,10 +2121,7 @@ class MKClientScreen extends StatelessWidget {
         elevation: 0,
         title: const Text(
           'MK CLIENT',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1.2,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.2),
         ),
       ),
       body: ListView(
@@ -1330,11 +2140,7 @@ class MKClientScreen extends StatelessWidget {
 
           const Text(
             'Select the option that best matches your property needs.',
-            style: TextStyle(
-              color: Colors.white60,
-              fontSize: 14,
-              height: 1.4,
-            ),
+            style: TextStyle(color: Colors.white60, fontSize: 14, height: 1.4),
           ),
 
           const SizedBox(height: 24),
@@ -1346,9 +2152,7 @@ class MKClientScreen extends StatelessWidget {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const OwnerFormScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const OwnerFormScreen()),
               );
             },
           ),
@@ -1360,9 +2164,7 @@ class MKClientScreen extends StatelessWidget {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const TenantFormScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const TenantFormScreen()),
               );
             },
           ),
@@ -1374,9 +2176,7 @@ class MKClientScreen extends StatelessWidget {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const BuyerFormScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const BuyerFormScreen()),
               );
             },
           ),
@@ -1388,9 +2188,7 @@ class MKClientScreen extends StatelessWidget {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const JoinUsFormScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const JoinUsFormScreen()),
               );
             },
           ),
@@ -1415,6 +2213,7 @@ class MKClientScreen extends StatelessWidget {
     );
   }
 }
+
 class MKClientCard extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -1447,10 +2246,7 @@ class MKClientCard extends StatelessWidget {
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: gold,
-                width: 1.3,
-              ),
+              border: Border.all(color: gold, width: 1.3),
             ),
             child: Row(
               children: [
@@ -1461,11 +2257,7 @@ class MKClientCard extends StatelessWidget {
                     color: gold.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Icon(
-                    icon,
-                    color: gold,
-                    size: 45,
-                  ),
+                  child: Icon(icon, color: gold, size: 45),
                 ),
 
                 const SizedBox(width: 16),
@@ -1511,6 +2303,7 @@ class MKClientCard extends StatelessWidget {
     );
   }
 }
+
 class OwnerFormScreen extends StatefulWidget {
   const OwnerFormScreen({super.key});
 
@@ -1550,7 +2343,8 @@ class _OwnerFormScreenState extends State<OwnerFormScreen> {
   }
 
   Future<void> _submitToWhatsApp() async {
-    final message = '''
+    final message =
+        '''
 Hi MK Khairul,
 
 Saya dari MK KHAIRUL Property Tools.
@@ -1582,10 +2376,7 @@ Boleh bantu saya?
     );
 
     if (!launched) {
-      await launchUrl(
-        whatsappUrl,
-        mode: LaunchMode.platformDefault,
-      );
+      await launchUrl(whatsappUrl, mode: LaunchMode.platformDefault);
     }
   }
 
@@ -1599,10 +2390,7 @@ Boleh bantu saya?
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: gold,
-          width: 1.5,
-        ),
+        borderSide: const BorderSide(color: gold, width: 1.5),
       ),
       filled: true,
       fillColor: navy,
@@ -1618,10 +2406,7 @@ Boleh bantu saya?
         foregroundColor: Colors.white,
         title: const Text(
           'OWNER',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1),
         ),
       ),
       body: ListView(
@@ -1640,11 +2425,7 @@ Boleh bantu saya?
 
           const Text(
             'Fill in your property information and continue directly to MK Khairul.',
-            style: TextStyle(
-              color: Colors.white60,
-              fontSize: 14,
-              height: 1.4,
-            ),
+            style: TextStyle(color: Colors.white60, fontSize: 14, height: 1.4),
           ),
 
           const SizedBox(height: 24),
@@ -1655,14 +2436,8 @@ Boleh bantu saya?
             style: const TextStyle(color: Colors.white),
             decoration: _fieldDecoration('Purpose'),
             items: const [
-              DropdownMenuItem(
-                value: 'Sell',
-                child: Text('Sell'),
-              ),
-              DropdownMenuItem(
-                value: 'Rent Out',
-                child: Text('Rent Out'),
-              ),
+              DropdownMenuItem(value: 'Sell', child: Text('Sell')),
+              DropdownMenuItem(value: 'Rent Out', child: Text('Rent Out')),
               DropdownMenuItem(
                 value: 'Check Market Value',
                 child: Text('Check Market Value'),
@@ -1683,9 +2458,7 @@ Boleh bantu saya?
             controller: priceController,
             keyboardType: TextInputType.number,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Selling Price / Monthly Rental',
-            ),
+            decoration: _fieldDecoration('Selling Price / Monthly Rental'),
           ),
 
           const SizedBox(height: 14),
@@ -1722,42 +2495,18 @@ Boleh bantu saya?
             style: const TextStyle(color: Colors.white),
             decoration: _fieldDecoration('Property Type'),
             items: const [
-              DropdownMenuItem(
-                value: 'Land',
-                child: Text('Land'),
-              ),
-              DropdownMenuItem(
-                value: 'Terrace',
-                child: Text('Terrace'),
-              ),
-              DropdownMenuItem(
-                value: 'Townhouse',
-                child: Text('Townhouse'),
-              ),
-              DropdownMenuItem(
-                value: 'Semi-D',
-                child: Text('Semi-D'),
-              ),
-              DropdownMenuItem(
-                value: 'Bungalow',
-                child: Text('Bungalow'),
-              ),
-              DropdownMenuItem(
-                value: 'Shoplot',
-                child: Text('Shoplot'),
-              ),
-              DropdownMenuItem(
-                value: 'Apartment',
-                child: Text('Apartment'),
-              ),
+              DropdownMenuItem(value: 'Land', child: Text('Land')),
+              DropdownMenuItem(value: 'Terrace', child: Text('Terrace')),
+              DropdownMenuItem(value: 'Townhouse', child: Text('Townhouse')),
+              DropdownMenuItem(value: 'Semi-D', child: Text('Semi-D')),
+              DropdownMenuItem(value: 'Bungalow', child: Text('Bungalow')),
+              DropdownMenuItem(value: 'Shoplot', child: Text('Shoplot')),
+              DropdownMenuItem(value: 'Apartment', child: Text('Apartment')),
               DropdownMenuItem(
                 value: 'Condominium',
                 child: Text('Condominium'),
               ),
-              DropdownMenuItem(
-                value: 'Other',
-                child: Text('Other'),
-              ),
+              DropdownMenuItem(value: 'Other', child: Text('Other')),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -1850,9 +2599,7 @@ Boleh bantu saya?
               icon: const Icon(Icons.chat_bubble_outline),
               label: const Text(
                 'CONTINUE TO WHATSAPP',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                ),
+                style: TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
           ),
@@ -1862,17 +2609,14 @@ Boleh bantu saya?
           const Text(
             'Please review your information before sending it to MK Khairul.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white38,
-              fontSize: 11,
-              height: 1.4,
-            ),
+            style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
           ),
         ],
       ),
     );
   }
 }
+
 class TenantFormScreen extends StatefulWidget {
   const TenantFormScreen({super.key});
 
@@ -1953,21 +2697,14 @@ class _TenantFormScreenState extends State<TenantFormScreen> {
   InputDecoration _fieldDecoration(String label) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(
-        color: Colors.white70,
-      ),
+      labelStyle: const TextStyle(color: Colors.white70),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: Color(0x66D4AF37),
-        ),
+        borderSide: const BorderSide(color: Color(0x66D4AF37)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: gold,
-          width: 1.5,
-        ),
+        borderSide: const BorderSide(color: gold, width: 1.5),
       ),
       filled: true,
       fillColor: navy,
@@ -1976,10 +2713,7 @@ class _TenantFormScreenState extends State<TenantFormScreen> {
 
   Widget _sectionTitle(String title) {
     return Padding(
-      padding: const EdgeInsets.only(
-        top: 8,
-        bottom: 12,
-      ),
+      padding: const EdgeInsets.only(top: 8, bottom: 12),
       child: Text(
         title,
         style: const TextStyle(
@@ -1996,15 +2730,14 @@ class _TenantFormScreenState extends State<TenantFormScreen> {
     if (!consent) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Please confirm your consent before continuing.',
-          ),
+          content: Text('Please confirm your consent before continuing.'),
         ),
       );
       return;
     }
 
-    final message = '''
+    final message =
+        '''
 Hi MK Khairul,
 
 Saya dari MK KHAIRUL Property Tools.
@@ -2060,10 +2793,7 @@ Thank you.
     );
 
     if (!launched) {
-      await launchUrl(
-        whatsappUrl,
-        mode: LaunchMode.platformDefault,
-      );
+      await launchUrl(whatsappUrl, mode: LaunchMode.platformDefault);
     }
   }
 
@@ -2076,10 +2806,7 @@ Thank you.
         foregroundColor: Colors.white,
         title: const Text(
           'TENANT',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1),
         ),
       ),
       body: ListView(
@@ -2098,11 +2825,7 @@ Thank you.
 
           const Text(
             'Complete the details below for rental application and tenancy agreement preparation.',
-            style: TextStyle(
-              color: Colors.white60,
-              fontSize: 14,
-              height: 1.4,
-            ),
+            style: TextStyle(color: Colors.white60, fontSize: 14, height: 1.4),
           ),
 
           const SizedBox(height: 22),
@@ -2149,22 +2872,10 @@ Thank you.
             style: const TextStyle(color: Colors.white),
             decoration: _fieldDecoration('Marital Status'),
             items: const [
-              DropdownMenuItem(
-                value: 'Single',
-                child: Text('Single'),
-              ),
-              DropdownMenuItem(
-                value: 'Married',
-                child: Text('Married'),
-              ),
-              DropdownMenuItem(
-                value: 'Divorced',
-                child: Text('Divorced'),
-              ),
-              DropdownMenuItem(
-                value: 'Widowed',
-                child: Text('Widowed'),
-              ),
+              DropdownMenuItem(value: 'Single', child: Text('Single')),
+              DropdownMenuItem(value: 'Married', child: Text('Married')),
+              DropdownMenuItem(value: 'Divorced', child: Text('Divorced')),
+              DropdownMenuItem(value: 'Widowed', child: Text('Widowed')),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -2321,9 +3032,7 @@ Thank you.
           TextField(
             controller: tenancyStartDateController,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Tenancy Start Date',
-            ),
+            decoration: _fieldDecoration('Tenancy Start Date'),
           ),
 
           const SizedBox(height: 14),
@@ -2334,22 +3043,10 @@ Thank you.
             style: const TextStyle(color: Colors.white),
             decoration: _fieldDecoration('Tenancy Period'),
             items: const [
-              DropdownMenuItem(
-                value: '1 Year',
-                child: Text('1 Year'),
-              ),
-              DropdownMenuItem(
-                value: '2 Years',
-                child: Text('2 Years'),
-              ),
-              DropdownMenuItem(
-                value: '3 Years',
-                child: Text('3 Years'),
-              ),
-              DropdownMenuItem(
-                value: 'Other',
-                child: Text('Other'),
-              ),
+              DropdownMenuItem(value: '1 Year', child: Text('1 Year')),
+              DropdownMenuItem(value: '2 Years', child: Text('2 Years')),
+              DropdownMenuItem(value: '3 Years', child: Text('3 Years')),
+              DropdownMenuItem(value: 'Other', child: Text('Other')),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -2366,9 +3063,7 @@ Thank you.
             controller: occupantsController,
             keyboardType: TextInputType.number,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Number of Occupants',
-            ),
+            decoration: _fieldDecoration('Number of Occupants'),
           ),
 
           const SizedBox(height: 14),
@@ -2376,9 +3071,7 @@ Thank you.
           TextField(
             controller: intendedUseController,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Intended Use',
-            ),
+            decoration: _fieldDecoration('Intended Use'),
           ),
 
           const SizedBox(height: 14),
@@ -2387,9 +3080,7 @@ Thank you.
             controller: notesController,
             maxLines: 4,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Additional Notes',
-            ),
+            decoration: _fieldDecoration('Additional Notes'),
           ),
 
           const SizedBox(height: 18),
@@ -2428,14 +3119,10 @@ Thank you.
                 ),
               ),
               onPressed: _submitToWhatsApp,
-              icon: const Icon(
-                Icons.chat_bubble_outline,
-              ),
+              icon: const Icon(Icons.chat_bubble_outline),
               label: const Text(
                 'CONTINUE TO WHATSAPP',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                ),
+                style: TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
           ),
@@ -2445,17 +3132,14 @@ Thank you.
           const Text(
             'Please review your information carefully before sending.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white38,
-              fontSize: 11,
-              height: 1.4,
-            ),
+            style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
           ),
         ],
       ),
     );
   }
 }
+
 class BuyerFormScreen extends StatefulWidget {
   const BuyerFormScreen({super.key});
 
@@ -2584,21 +3268,14 @@ class _BuyerFormScreenState extends State<BuyerFormScreen> {
   InputDecoration _fieldDecoration(String label) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(
-        color: Colors.white70,
-      ),
+      labelStyle: const TextStyle(color: Colors.white70),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: Color(0x66D4AF37),
-        ),
+        borderSide: const BorderSide(color: Color(0x66D4AF37)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: gold,
-          width: 1.5,
-        ),
+        borderSide: const BorderSide(color: gold, width: 1.5),
       ),
       filled: true,
       fillColor: navy,
@@ -2607,10 +3284,7 @@ class _BuyerFormScreenState extends State<BuyerFormScreen> {
 
   Widget _sectionTitle(String title) {
     return Padding(
-      padding: const EdgeInsets.only(
-        top: 10,
-        bottom: 12,
-      ),
+      padding: const EdgeInsets.only(top: 10, bottom: 12),
       child: Text(
         title,
         style: const TextStyle(
@@ -2632,15 +3306,14 @@ class _BuyerFormScreenState extends State<BuyerFormScreen> {
     if (!privacyConsent) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Please confirm your consent before continuing.',
-          ),
+          content: Text('Please confirm your consent before continuing.'),
         ),
       );
       return;
     }
 
-    final message = '''
+    final message =
+        '''
 Hi MK Khairul,
 
 Saya dari MK KHAIRUL Property Tools.
@@ -2724,10 +3397,7 @@ Thank you.
     );
 
     if (!launched) {
-      await launchUrl(
-        whatsappUrl,
-        mode: LaunchMode.platformDefault,
-      );
+      await launchUrl(whatsappUrl, mode: LaunchMode.platformDefault);
     }
   }
 
@@ -2740,10 +3410,7 @@ Thank you.
         foregroundColor: Colors.white,
         title: const Text(
           'BUYER',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1),
         ),
       ),
       body: ListView(
@@ -2762,11 +3429,7 @@ Thank you.
 
           const Text(
             'Complete your details to help MK Khairul understand your property and financing needs.',
-            style: TextStyle(
-              color: Colors.white60,
-              fontSize: 14,
-              height: 1.4,
-            ),
+            style: TextStyle(color: Colors.white60, fontSize: 14, height: 1.4),
           ),
 
           const SizedBox(height: 22),
@@ -2832,22 +3495,10 @@ Thank you.
             style: const TextStyle(color: Colors.white),
             decoration: _fieldDecoration('Marital Status'),
             items: const [
-              DropdownMenuItem(
-                value: 'Single',
-                child: Text('Single'),
-              ),
-              DropdownMenuItem(
-                value: 'Married',
-                child: Text('Married'),
-              ),
-              DropdownMenuItem(
-                value: 'Divorced',
-                child: Text('Divorced'),
-              ),
-              DropdownMenuItem(
-                value: 'Widowed',
-                child: Text('Widowed'),
-              ),
+              DropdownMenuItem(value: 'Single', child: Text('Single')),
+              DropdownMenuItem(value: 'Married', child: Text('Married')),
+              DropdownMenuItem(value: 'Divorced', child: Text('Divorced')),
+              DropdownMenuItem(value: 'Widowed', child: Text('Widowed')),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -2948,9 +3599,7 @@ Thank you.
             controller: spouseEmployerController,
             maxLines: 2,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Spouse Employer / Employer Address',
-            ),
+            decoration: _fieldDecoration('Spouse Employer / Employer Address'),
           ),
 
           const SizedBox(height: 14),
@@ -3098,9 +3747,7 @@ Thank you.
             controller: otherIncomeController,
             keyboardType: TextInputType.number,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Other Income / Commission',
-            ),
+            decoration: _fieldDecoration('Other Income / Commission'),
           ),
 
           const SizedBox(height: 14),
@@ -3174,9 +3821,7 @@ Thank you.
             controller: creditCardLimitController,
             keyboardType: TextInputType.number,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Credit Card Maximum Limit',
-            ),
+            decoration: _fieldDecoration('Credit Card Maximum Limit'),
           ),
 
           const SizedBox(height: 18),
@@ -3187,14 +3832,8 @@ Thank you.
             style: const TextStyle(color: Colors.white),
             decoration: _fieldDecoration('Application Type'),
             items: const [
-              DropdownMenuItem(
-                value: 'Individual',
-                child: Text('Individual'),
-              ),
-              DropdownMenuItem(
-                value: 'Joint',
-                child: Text('Joint'),
-              ),
+              DropdownMenuItem(value: 'Individual', child: Text('Individual')),
+              DropdownMenuItem(value: 'Joint', child: Text('Joint')),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -3211,18 +3850,10 @@ Thank you.
             initialValue: depositReady,
             dropdownColor: navy,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              '10% Cash Deposit Ready?',
-            ),
+            decoration: _fieldDecoration('10% Cash Deposit Ready?'),
             items: const [
-              DropdownMenuItem(
-                value: 'Yes',
-                child: Text('Yes'),
-              ),
-              DropdownMenuItem(
-                value: 'No',
-                child: Text('No'),
-              ),
+              DropdownMenuItem(value: 'Yes', child: Text('Yes')),
+              DropdownMenuItem(value: 'No', child: Text('No')),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -3254,14 +3885,8 @@ Thank you.
               'Consent for CCRIS / CTOS Record Check',
             ),
             items: const [
-              DropdownMenuItem(
-                value: 'Yes',
-                child: Text('Yes'),
-              ),
-              DropdownMenuItem(
-                value: 'No',
-                child: Text('No'),
-              ),
+              DropdownMenuItem(value: 'Yes', child: Text('Yes')),
+              DropdownMenuItem(value: 'No', child: Text('No')),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -3308,14 +3933,10 @@ Thank you.
                 ),
               ),
               onPressed: _submitToWhatsApp,
-              icon: const Icon(
-                Icons.chat_bubble_outline,
-              ),
+              icon: const Icon(Icons.chat_bubble_outline),
               label: const Text(
                 'CONTINUE TO WHATSAPP',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                ),
+                style: TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
           ),
@@ -3325,17 +3946,14 @@ Thank you.
           const Text(
             'Please review your information carefully before sending. Do not include passwords, OTPs or banking credentials.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white38,
-              fontSize: 11,
-              height: 1.4,
-            ),
+            style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
           ),
         ],
       ),
     );
   }
 }
+
 class JoinUsFormScreen extends StatefulWidget {
   const JoinUsFormScreen({super.key});
 
@@ -3376,21 +3994,14 @@ class _JoinUsFormScreenState extends State<JoinUsFormScreen> {
   InputDecoration _fieldDecoration(String label) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(
-        color: Colors.white70,
-      ),
+      labelStyle: const TextStyle(color: Colors.white70),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: Color(0x66D4AF37),
-        ),
+        borderSide: const BorderSide(color: Color(0x66D4AF37)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: gold,
-          width: 1.5,
-        ),
+        borderSide: const BorderSide(color: gold, width: 1.5),
       ),
       filled: true,
       fillColor: navy,
@@ -3399,10 +4010,7 @@ class _JoinUsFormScreenState extends State<JoinUsFormScreen> {
 
   Widget _sectionTitle(String title) {
     return Padding(
-      padding: const EdgeInsets.only(
-        top: 10,
-        bottom: 12,
-      ),
+      padding: const EdgeInsets.only(top: 10, bottom: 12),
       child: Text(
         title,
         style: const TextStyle(
@@ -3424,15 +4032,14 @@ class _JoinUsFormScreenState extends State<JoinUsFormScreen> {
     if (!consent) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Please confirm your consent before continuing.',
-          ),
+          content: Text('Please confirm your consent before continuing.'),
         ),
       );
       return;
     }
 
-    final message = '''
+    final message =
+        '''
 Hi MK Khairul,
 
 Saya dari MK KHAIRUL Property Tools.
@@ -3470,10 +4077,7 @@ Thank you.
     );
 
     if (!launched) {
-      await launchUrl(
-        whatsappUrl,
-        mode: LaunchMode.platformDefault,
-      );
+      await launchUrl(whatsappUrl, mode: LaunchMode.platformDefault);
     }
   }
 
@@ -3486,10 +4090,7 @@ Thank you.
         foregroundColor: Colors.white,
         title: const Text(
           'JOIN US',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1),
         ),
       ),
       body: ListView(
@@ -3508,11 +4109,7 @@ Thank you.
 
           const Text(
             'Interested in building your property career? Tell us a little about yourself.',
-            style: TextStyle(
-              color: Colors.white60,
-              fontSize: 14,
-              height: 1.4,
-            ),
+            style: TextStyle(color: Colors.white60, fontSize: 14, height: 1.4),
           ),
 
           const SizedBox(height: 22),
@@ -3548,9 +4145,7 @@ Thank you.
           TextField(
             controller: locationController,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Current Location',
-            ),
+            decoration: _fieldDecoration('Current Location'),
           ),
 
           const SizedBox(height: 14),
@@ -3558,9 +4153,7 @@ Thank you.
           TextField(
             controller: currentJobController,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Current Job / Occupation',
-            ),
+            decoration: _fieldDecoration('Current Job / Occupation'),
           ),
 
           const SizedBox(height: 18),
@@ -3571,18 +4164,10 @@ Thank you.
             initialValue: workType,
             dropdownColor: navy,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Part-Time / Full-Time',
-            ),
+            decoration: _fieldDecoration('Part-Time / Full-Time'),
             items: const [
-              DropdownMenuItem(
-                value: 'Part-Time',
-                child: Text('Part-Time'),
-              ),
-              DropdownMenuItem(
-                value: 'Full-Time',
-                child: Text('Full-Time'),
-              ),
+              DropdownMenuItem(value: 'Part-Time', child: Text('Part-Time')),
+              DropdownMenuItem(value: 'Full-Time', child: Text('Full-Time')),
               DropdownMenuItem(
                 value: 'Open to Both',
                 child: Text('Open to Both'),
@@ -3603,14 +4188,9 @@ Thank you.
             initialValue: propertyExperience,
             dropdownColor: navy,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Property Experience',
-            ),
+            decoration: _fieldDecoration('Property Experience'),
             items: const [
-              DropdownMenuItem(
-                value: 'No',
-                child: Text('No Experience'),
-              ),
+              DropdownMenuItem(value: 'No', child: Text('No Experience')),
               DropdownMenuItem(
                 value: 'Yes',
                 child: Text('Yes, I Have Experience'),
@@ -3631,18 +4211,10 @@ Thank you.
             initialValue: ownTransport,
             dropdownColor: navy,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Own Transport',
-            ),
+            decoration: _fieldDecoration('Own Transport'),
             items: const [
-              DropdownMenuItem(
-                value: 'Yes',
-                child: Text('Yes'),
-              ),
-              DropdownMenuItem(
-                value: 'No',
-                child: Text('No'),
-              ),
+              DropdownMenuItem(value: 'Yes', child: Text('Yes')),
+              DropdownMenuItem(value: 'No', child: Text('No')),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -3659,22 +4231,14 @@ Thank you.
             initialValue: preferredStart,
             dropdownColor: navy,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Preferred Start',
-            ),
+            decoration: _fieldDecoration('Preferred Start'),
             items: const [
               DropdownMenuItem(
                 value: 'Immediately',
                 child: Text('Immediately'),
               ),
-              DropdownMenuItem(
-                value: 'This Month',
-                child: Text('This Month'),
-              ),
-              DropdownMenuItem(
-                value: 'Later',
-                child: Text('Later'),
-              ),
+              DropdownMenuItem(value: 'This Month', child: Text('This Month')),
+              DropdownMenuItem(value: 'Later', child: Text('Later')),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -3692,12 +4256,8 @@ Thank you.
           TextField(
             controller: reasonController,
             maxLines: 5,
-            style: const TextStyle(
-              color: Colors.white,
-            ),
-            decoration: _fieldDecoration(
-              'Why do you want to join?',
-            ),
+            style: const TextStyle(color: Colors.white),
+            decoration: _fieldDecoration('Why do you want to join?'),
           ),
 
           const SizedBox(height: 18),
@@ -3707,8 +4267,7 @@ Thank you.
             activeColor: gold,
             checkColor: deepNavy,
             contentPadding: EdgeInsets.zero,
-            controlAffinity:
-                ListTileControlAffinity.leading,
+            controlAffinity: ListTileControlAffinity.leading,
             title: const Text(
               'I consent to providing these details to MK Khairul for property team recruitment purposes.',
               style: TextStyle(
@@ -3733,19 +4292,14 @@ Thank you.
                 backgroundColor: gold,
                 foregroundColor: deepNavy,
                 shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(16),
                 ),
               ),
               onPressed: _submitToWhatsApp,
-              icon: const Icon(
-                Icons.chat_bubble_outline,
-              ),
+              icon: const Icon(Icons.chat_bubble_outline),
               label: const Text(
                 'CONTINUE TO WHATSAPP',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                ),
+                style: TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
           ),
@@ -3755,27 +4309,24 @@ Thank you.
           const Text(
             'Please review your information before sending.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white38,
-              fontSize: 11,
-              height: 1.4,
-            ),
+            style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
           ),
         ],
       ),
     );
   }
 }
+
 class PropertyListingScreen extends StatefulWidget {
-  const PropertyListingScreen({super.key});
+  final double? maxBudget;
+
+  const PropertyListingScreen({super.key, this.maxBudget});
 
   @override
-  State<PropertyListingScreen> createState() =>
-      _PropertyListingScreenState();
+  State<PropertyListingScreen> createState() => _PropertyListingScreenState();
 }
 
-class _PropertyListingScreenState
-    extends State<PropertyListingScreen> {
+class _PropertyListingScreenState extends State<PropertyListingScreen> {
   static const navy = Color(0xFF071A2C);
   static const deepNavy = Color(0xFF03111E);
   static const gold = Color(0xFFD4AF37);
@@ -3783,598 +4334,490 @@ class _PropertyListingScreenState
 
   final searchController = TextEditingController();
   final String listingApiUrl =
-    'https://script.google.com/macros/s/AKfycbyKKrioq22adrb2wpdad3wj6CedlqhLzEomOCkR-AdXcjU75M9pNTTySz5xYBEqN8gb/exec';
+      'https://script.google.com/macros/s/AKfycbyKKrioq22adrb2wpdad3wj6CedlqhLzEomOCkR-AdXcjU75M9pNTTySz5xYBEqN8gb/exec';
 
-List<dynamic> listings = [];
+  List<dynamic> listings = [];
 
-bool isLoading = true;
+  bool isLoading = true;
 
-String? loadError;
+  String? loadError;
 
-String selectedPurpose = 'BUY';
+  String selectedPurpose = 'BUY';
 
-String selectedLocation = 'All Malaysia';
+  String selectedLocation = 'All Malaysia';
 
-String selectedPropertyType = 'All Property Types';
+  String selectedPropertyType = 'All Property Types';
 
-final List<String> locations = const [
-  'All Malaysia',
-  'Kuala Lumpur',
-  'Putrajaya',
-  'Selangor',
-  'Perak',
-  'Johor',
-  'Kedah',
-  'Kelantan',
-  'Melaka',
-  'Negeri Sembilan',
-  'Pahang',
-  'Penang',
-  'Perlis',
-  'Terengganu',
-  'Sabah',
-  'Sarawak',
-  'Labuan',
-];
+  final List<String> locations = const [
+    'All Malaysia',
+    'Kuala Lumpur',
+    'Putrajaya',
+    'Selangor',
+    'Perak',
+    'Johor',
+    'Kedah',
+    'Kelantan',
+    'Melaka',
+    'Negeri Sembilan',
+    'Pahang',
+    'Penang',
+    'Perlis',
+    'Terengganu',
+    'Sabah',
+    'Sarawak',
+    'Labuan',
+  ];
 
-final List<String> propertyTypes = const [
-  'All Property Types',
-  'Residential',
-  'Factory',
-  'Commercial',
-  'Land',
-  'Shoplot',
-];
+  final List<String> propertyTypes = const [
+    'All Property Types',
+    'Residential',
+    'Factory',
+    'Commercial',
+    'Land',
+    'Shoplot',
+  ];
 
-@override
-void initState() {
-  super.initState();
-  _loadListings();
-}
-
-Future<void> _loadListings() async {
-  try {
-    setState(() {
-      isLoading = true;
-      loadError = null;
-    });
-
-    final response = await http.get(
-      Uri.parse(listingApiUrl),
-    );
-
-    if (response.statusCode != 200) {
-      throw Exception(
-        'Server error: ${response.statusCode}',
-      );
-    }
-
-    final data = jsonDecode(response.body);
-
-    if (data['success'] != true) {
-      throw Exception(
-        data['error'] ?? 'Unable to load listings.',
-      );
-    }
-
-    setState(() {
-      listings = data['listings'] ?? [];
-      isLoading = false;
-    });
-
-    debugPrint(
-      'PROPERTY LISTINGS LOADED: ${listings.length}',
-    );
-  } catch (e) {
-    setState(() {
-      loadError = e.toString();
-      isLoading = false;
-    });
-
-    debugPrint(
-      'PROPERTY LISTING ERROR: $e',
-    );
-  }
-}
-
-String _field(
-  Map<String, dynamic> item,
-  String key,
-) {
-  final value = item[key];
-
-  if (value == null) return '';
-
-  return value.toString().trim();
-}
-
-double _number(dynamic value) {
-  if (value == null) return 0;
-
-  if (value is num) {
-    return value.toDouble();
+  @override
+  void initState() {
+    super.initState();
+    _loadListings();
   }
 
-  final cleaned = value
-      .toString()
-      .replaceAll('RM', '')
-      .replaceAll(',', '')
-      .trim();
+  Future<void> _loadListings() async {
+    try {
+      setState(() {
+        isLoading = true;
+        loadError = null;
+      });
 
-  return double.tryParse(cleaned) ?? 0;
-}
+      final response = await http.get(Uri.parse(listingApiUrl));
 
-String _formatMoney(dynamic value) {
-  final number = _number(value).round();
-
-  final text = number.toString();
-
-  return text.replaceAllMapped(
-    RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
-    (match) => '${match[1]},',
-  );
-}
-
-String _publicListingPrice(
-  Map<String, dynamic> item,
-) {
-  final raw = _field(item, 'Listing Price');
-
-  if (raw.isNotEmpty) {
-    final compact = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
-    final numericMatch = RegExp(
-      r'^RM\s*([0-9,]+(?:\.[0-9]+)?)$',
-      caseSensitive: false,
-    ).firstMatch(compact);
-
-    if (numericMatch != null) {
-      final numericValue = double.tryParse(
-        numericMatch.group(1)!.replaceAll(',', ''),
-      );
-
-      if (numericValue != null) {
-        return 'RM ${_formatMoney(numericValue)}';
+      if (response.statusCode != 200) {
+        throw Exception('Server error: ${response.statusCode}');
       }
-    }
 
-    return compact;
+      final data = jsonDecode(response.body);
+
+      if (data['success'] != true) {
+        throw Exception(data['error'] ?? 'Unable to load listings.');
+      }
+
+      setState(() {
+        listings = data['listings'] ?? [];
+        isLoading = false;
+      });
+
+      debugPrint('PROPERTY LISTINGS LOADED: ${listings.length}');
+    } catch (e) {
+      setState(() {
+        loadError = e.toString();
+        isLoading = false;
+      });
+
+      debugPrint('PROPERTY LISTING ERROR: $e');
+    }
   }
 
-  final currentPrice = _number(item['Current Price']);
+  String _field(Map<String, dynamic> item, String key) {
+    final value = item[key];
 
-  if (currentPrice > 0) {
-    return 'RM ${_formatMoney(currentPrice)}';
+    if (value == null) return '';
+
+    return value.toString().trim();
   }
 
-  return 'PRICE ON REQUEST';
-}
+  double _number(dynamic value) {
+    if (value == null) return 0;
 
-bool _usesMaskedPublicPrice(
-  Map<String, dynamic> item,
-) {
-  final category =
-      _field(item, 'Listing Category').toUpperCase();
-  final publicPrice =
-      _field(item, 'Listing Price').toUpperCase();
-
-  return category.startsWith('NEW') ||
-      publicPrice.contains('XX') ||
-      publicPrice.contains('FROM');
-}
-
-List<Map<String, dynamic>> get filteredListings {
-  final query =
-      searchController.text.trim().toLowerCase();
-
-  final result = <Map<String, dynamic>>[];
-
-  for (final raw in listings) {
-    if (raw is! Map) continue;
-
-    final item =
-        Map<String, dynamic>.from(raw);
-
-    final purpose =
-        _field(item, 'Purpose').toUpperCase();
-
-    final state =
-        _field(item, 'State');
-
-    final propertyType =
-        _field(item, 'Property Type');
-
-    if (purpose != selectedPurpose) {
-      continue;
+    if (value is num) {
+      return value.toDouble();
     }
 
-    if (selectedLocation != 'All Malaysia' &&
-        state.toLowerCase() !=
-            selectedLocation.toLowerCase()) {
-      continue;
+    final cleaned = value
+        .toString()
+        .replaceAll('RM', '')
+        .replaceAll(',', '')
+        .trim();
+
+    return double.tryParse(cleaned) ?? 0;
+  }
+
+  String _formatMoney(dynamic value) {
+    final number = _number(value).round();
+
+    final text = number.toString();
+
+    return text.replaceAllMapped(
+      RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
+      (match) => '${match[1]},',
+    );
+  }
+
+  String _publicListingPrice(Map<String, dynamic> item) {
+    final raw = _field(item, 'Listing Price');
+
+    if (raw.isNotEmpty) {
+      final compact = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+      final numericMatch = RegExp(
+        r'^RM\s*([0-9,]+(?:\.[0-9]+)?)$',
+        caseSensitive: false,
+      ).firstMatch(compact);
+
+      if (numericMatch != null) {
+        final numericValue = double.tryParse(
+          numericMatch.group(1)!.replaceAll(',', ''),
+        );
+
+        if (numericValue != null) {
+          return 'RM ${_formatMoney(numericValue)}';
+        }
+      }
+
+      return compact;
     }
 
-    if (selectedPropertyType !=
-            'All Property Types' &&
-        propertyType.toLowerCase() !=
-            selectedPropertyType.toLowerCase()) {
-      continue;
+    final currentPrice = _number(item['Current Price']);
+
+    if (currentPrice > 0) {
+      return 'RM ${_formatMoney(currentPrice)}';
     }
 
-    if (query.isNotEmpty) {
-      final searchableText = [
-        _field(item, 'ID'),
-        _field(item, 'Title'),
-        _field(item, 'State'),
-        _field(item, 'Location'),
-        _field(item, 'Property Type'),
-        _field(item, 'Description'),
-      ].join(' ').toLowerCase();
+    return 'PRICE ON REQUEST';
+  }
 
-      if (!searchableText.contains(query)) {
+  bool _usesMaskedPublicPrice(Map<String, dynamic> item) {
+    final category = _field(item, 'Listing Category').toUpperCase();
+    final publicPrice = _field(item, 'Listing Price').toUpperCase();
+
+    return category.startsWith('NEW') ||
+        publicPrice.contains('XX') ||
+        publicPrice.contains('FROM');
+  }
+
+  List<Map<String, dynamic>> get filteredListings {
+    final query = searchController.text.trim().toLowerCase();
+
+    final result = <Map<String, dynamic>>[];
+
+    for (final raw in listings) {
+      if (raw is! Map) continue;
+
+      final item = Map<String, dynamic>.from(raw);
+
+      final purpose = _field(item, 'Purpose').toUpperCase();
+
+      final state = _field(item, 'State');
+
+      final propertyType = _field(item, 'Property Type');
+
+      if (purpose != selectedPurpose) {
         continue;
       }
+
+      if (selectedLocation != 'All Malaysia' &&
+          state.toLowerCase() != selectedLocation.toLowerCase()) {
+        continue;
+      }
+
+      if (selectedPropertyType != 'All Property Types' &&
+          propertyType.toLowerCase() != selectedPropertyType.toLowerCase()) {
+        continue;
+      }
+
+            if (widget.maxBudget != null && widget.maxBudget! > 0) {
+        final currentPrice =
+            _number(item['Current Price']);
+
+        if (currentPrice <= 0 ||
+            currentPrice > widget.maxBudget!) {
+          continue;
+        }
+      }
+
+      if (query.isNotEmpty) {
+        final searchableText = [
+          _field(item, 'ID'),
+          _field(item, 'Title'),
+          _field(item, 'State'),
+          _field(item, 'Location'),
+          _field(item, 'Property Type'),
+          _field(item, 'Description'),
+        ].join(' ').toLowerCase();
+
+        if (!searchableText.contains(query)) {
+          continue;
+        }
+      }
+
+      result.add(item);
     }
 
-    result.add(item);
+    return result;
   }
 
-  return result;
-}
+  Widget _buildListingCard(Map<String, dynamic> item) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final bool isDesktop = screenWidth >= 900;
 
-Widget _buildListingCard(
-  Map<String, dynamic> item,
-) {
-  final screenWidth = MediaQuery.sizeOf(context).width;
-  final bool isDesktop = screenWidth >= 900;
+    final title = _field(item, 'Title');
+    final location = _field(item, 'Location');
+    final state = _field(item, 'State');
+    final propertyType = _field(item, 'Property Type');
 
-  final title = _field(item, 'Title');
-  final location = _field(item, 'Location');
-  final state = _field(item, 'State');
-  final propertyType =
-      _field(item, 'Property Type');
+    final status = _field(item, 'Status').toUpperCase();
 
-  final status =
-      _field(item, 'Status').toUpperCase();
+    final priceTag = _field(item, 'Price Tag').toUpperCase();
 
-  final priceTag =
-      _field(item, 'Price Tag').toUpperCase();
+    final imageUrl = _field(item, 'Image1');
 
-  final imageUrl =
-      _field(item, 'Image1');
+    final originalPrice = _number(item['Original Price']);
 
-  final originalPrice =
-      _number(item['Original Price']);
+    final currentPrice = _number(item['Current Price']);
 
-  final currentPrice =
-      _number(item['Current Price']);
+    final displayPrice = _publicListingPrice(item);
 
-  final displayPrice =
-      _publicListingPrice(item);
+    final usesMaskedPublicPrice = _usesMaskedPublicPrice(item);
 
-  final usesMaskedPublicPrice =
-      _usesMaskedPublicPrice(item);
+    final hasReduction =
+        !usesMaskedPublicPrice &&
+        originalPrice > currentPrice &&
+        currentPrice > 0;
 
-  final hasReduction =
-      !usesMaskedPublicPrice &&
-      originalPrice > currentPrice &&
-      currentPrice > 0;
+    final saving = hasReduction ? originalPrice - currentPrice : 0;
 
-  final saving = hasReduction
-      ? originalPrice - currentPrice
-      : 0;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(isDesktop ? 20 : 16),
+        onTap: () {
+          // Web: show a clean, shareable SEO URL such as
+          // /property/hot-new-launch-kapar.
+          // Android: navigation stays exactly as before.
+          updateWebPropertyUrl(item);
 
-  return Material(
-  color: Colors.transparent,
-  child: InkWell(
-    borderRadius: BorderRadius.circular(
-      isDesktop ? 20 : 16,
-    ),
-    onTap: () {
-      // Web: show a clean, shareable SEO URL such as
-      // /property/hot-new-launch-kapar.
-      // Android: navigation stays exactly as before.
-      updateWebPropertyUrl(item);
-
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) =>
-              PropertyDetailScreen(
-            property: item,
-          ),
-        ),
-      );
-    },
-    child: Container(
-      decoration: BoxDecoration(
-      color: navy,
-      borderRadius: BorderRadius.circular(
-        isDesktop ? 20 : 16,
-      ),
-      border: Border.all(
-        color: const Color(0x66D4AF37),
-        width: 1.2,
-      ),
-    ),
-    clipBehavior: Clip.antiAlias,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // PROPERTY IMAGE
-        AspectRatio(
-          aspectRatio: isDesktop ? 16 / 10 : 4 / 3,
-          child: PropertyImageWithWatermark(
-            imageUrl: imageUrl,
-            watermarkFontSize:
-                isDesktop ? 12 : 8,
-          ),
-        ),
-
-        Expanded(
-          child: Padding(
-            padding: EdgeInsets.all(
-              isDesktop ? 18 : 10,
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => PropertyDetailScreen(property: item),
             ),
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-                // STATUS
-                Wrap(
-                  spacing: isDesktop ? 8 : 5,
-                  runSpacing: 5,
-                  children: [
-                    if (status.isNotEmpty)
-                      Container(
-                        padding:
-                            EdgeInsets.symmetric(
-                          horizontal:
-                              isDesktop ? 10 : 7,
-                          vertical:
-                              isDesktop ? 6 : 4,
-                        ),
-                        decoration:
-                            BoxDecoration(
-                          color: gold.withValues(
-                            alpha: 0.12,
-                          ),
-                          borderRadius:
-                              BorderRadius.circular(
-                            20,
-                          ),
-                          border: Border.all(
-                            color: gold,
-                          ),
-                        ),
-                        child: Text(
-                          status,
+          );
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: navy,
+            borderRadius: BorderRadius.circular(isDesktop ? 20 : 16),
+            border: Border.all(color: const Color(0x66D4AF37), width: 1.2),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // PROPERTY IMAGE
+              AspectRatio(
+                aspectRatio: isDesktop ? 16 / 10 : 4 / 3,
+                child: PropertyImageWithWatermark(
+                  imageUrl: imageUrl,
+                  watermarkFontSize: isDesktop ? 12 : 8,
+                ),
+              ),
+
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.all(isDesktop ? 18 : 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // STATUS
+                      Wrap(
+                        spacing: isDesktop ? 8 : 5,
+                        runSpacing: 5,
+                        children: [
+                          if (status.isNotEmpty)
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isDesktop ? 10 : 7,
+                                vertical: isDesktop ? 6 : 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: gold.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: gold),
+                              ),
+                              child: Text(
+                                status,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: softGold,
+                                  fontSize: isDesktop ? 11 : 8,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+
+                          if (priceTag.isNotEmpty)
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isDesktop ? 10 : 7,
+                                vertical: isDesktop ? 6 : 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white10,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                priceTag,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: isDesktop ? 11 : 8,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+
+                      SizedBox(height: isDesktop ? 12 : 7),
+
+                      if (hasReduction)
+                        Text(
+                          'RM ${_formatMoney(originalPrice)}',
                           maxLines: 1,
-                          overflow:
-                              TextOverflow.ellipsis,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: softGold,
-                            fontSize:
-                                isDesktop ? 11 : 8,
-                            fontWeight:
-                                FontWeight.w900,
+                            color: Colors.white54,
+                            fontSize: isDesktop ? 15 : 10,
+                            decoration: TextDecoration.lineThrough,
+                            decorationColor: Colors.white54,
                           ),
+                        ),
+
+                      if (hasReduction) const SizedBox(height: 2),
+
+                      // PRICE
+                      Text(
+                        displayPrice,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: softGold,
+                          fontSize: isDesktop ? 24 : 15,
+                          fontWeight: FontWeight.w900,
                         ),
                       ),
 
-                    if (priceTag.isNotEmpty)
-                      Container(
-                        padding:
-                            EdgeInsets.symmetric(
-                          horizontal:
-                              isDesktop ? 10 : 7,
-                          vertical:
-                              isDesktop ? 6 : 4,
-                        ),
-                        decoration:
-                            BoxDecoration(
-                          color: Colors.white10,
-                          borderRadius:
-                              BorderRadius.circular(
-                            20,
-                          ),
-                        ),
-                        child: Text(
-                          priceTag,
+                      if (hasReduction) ...[
+                        SizedBox(height: isDesktop ? 5 : 2),
+                        Text(
+                          'SAVE RM ${_formatMoney(saving)}',
                           maxLines: 1,
-                          overflow:
-                              TextOverflow.ellipsis,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: Colors.white,
-                            fontSize:
-                                isDesktop ? 11 : 8,
-                            fontWeight:
-                                FontWeight.w900,
+                            fontSize: isDesktop ? 12 : 8,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
-                      ),
-                  ],
-                ),
+                      ],
 
-                SizedBox(
-                  height: isDesktop ? 12 : 7,
-                ),
+                      SizedBox(height: isDesktop ? 12 : 7),
 
-                if (hasReduction)
-                  Text(
-                    'RM ${_formatMoney(originalPrice)}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white54,
-                      fontSize:
-                          isDesktop ? 15 : 10,
-                      decoration:
-                          TextDecoration.lineThrough,
-                      decorationColor:
-                          Colors.white54,
-                    ),
-                  ),
-
-                if (hasReduction)
-                  const SizedBox(height: 2),
-
-                // PRICE
-                Text(
-                  displayPrice,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: softGold,
-                    fontSize:
-                        isDesktop ? 24 : 15,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-
-                if (hasReduction) ...[
-                  SizedBox(
-                    height: isDesktop ? 5 : 2,
-                  ),
-                  Text(
-                    'SAVE RM ${_formatMoney(saving)}',
-                    maxLines: 1,
-                    overflow:
-                        TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize:
-                          isDesktop ? 12 : 8,
-                      fontWeight:
-                          FontWeight.w900,
-                    ),
-                  ),
-                ],
-
-                SizedBox(
-                  height: isDesktop ? 12 : 7,
-                ),
-
-                // TITLE
-                Text(
-                  title.isEmpty
-                      ? 'PROPERTY'
-                      : title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize:
-                        isDesktop ? 18 : 12,
-                    fontWeight: FontWeight.w900,
-                    height: 1.15,
-                  ),
-                ),
-
-                SizedBox(
-                  height: isDesktop ? 8 : 5,
-                ),
-
-                // LOCATION
-                Row(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.location_on_outlined,
-                      color: gold,
-                      size: isDesktop ? 18 : 13,
-                    ),
-
-                    SizedBox(
-                      width: isDesktop ? 6 : 3,
-                    ),
-
-                    Expanded(
-                      child: Text(
-                        [
-                          location,
-                          state,
-                        ]
-                            .where(
-                              (value) =>
-                                  value.isNotEmpty,
-                            )
-                            .join(', '),
+                      // TITLE
+                      Text(
+                        title.isEmpty ? 'PROPERTY' : title,
                         maxLines: 2,
-                        overflow:
-                            TextOverflow.ellipsis,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Colors.white70,
-                          fontSize:
-                              isDesktop ? 13 : 9,
-                          height: 1.2,
+                          color: Colors.white,
+                          fontSize: isDesktop ? 18 : 12,
+                          fontWeight: FontWeight.w900,
+                          height: 1.15,
                         ),
                       ),
-                    ),
-                  ],
-                ),
 
-                if (propertyType.isNotEmpty) ...[
-                  SizedBox(
-                    height: isDesktop ? 8 : 5,
-                  ),
+                      SizedBox(height: isDesktop ? 8 : 5),
 
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.home_work_outlined,
-                        color: gold,
-                        size:
-                            isDesktop ? 18 : 13,
-                      ),
-
-                      SizedBox(
-                        width:
-                            isDesktop ? 6 : 3,
-                      ),
-
-                      Expanded(
-                        child: Text(
-                          propertyType,
-                          maxLines: 1,
-                          overflow:
-                              TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color:
-                                Colors.white70,
-                            fontSize:
-                                isDesktop
-                                    ? 13
-                                    : 9,
-                            fontWeight:
-                                FontWeight.w700,
+                      // LOCATION
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.location_on_outlined,
+                            color: gold,
+                            size: isDesktop ? 18 : 13,
                           ),
-                        ),
+
+                          SizedBox(width: isDesktop ? 6 : 3),
+
+                          Expanded(
+                            child: Text(
+                              [
+                                location,
+                                state,
+                              ].where((value) => value.isNotEmpty).join(', '),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: isDesktop ? 13 : 9,
+                                height: 1.2,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
+
+                      if (propertyType.isNotEmpty) ...[
+                        SizedBox(height: isDesktop ? 8 : 5),
+
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.home_work_outlined,
+                              color: gold,
+                              size: isDesktop ? 18 : 13,
+                            ),
+
+                            SizedBox(width: isDesktop ? 6 : 3),
+
+                            Expanded(
+                              child: Text(
+                                propertyType,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: isDesktop ? 13 : 9,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+
+                      const Spacer(),
                     ],
                   ),
-                ],
-
-                                const Spacer(),
-              ],
-            ),
+                ),
+              ),
+            ],
           ),
         ),
-      ],
-    ),
-  ),
-),
-);
-}
+      ),
+    );
+  }
 
-@override
-void dispose() {
-  searchController.dispose();
-  super.dispose();
-}
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
 
-@override
-Widget build(BuildContext context) {
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: deepNavy,
       appBar: AppBar(
@@ -4383,477 +4826,445 @@ Widget build(BuildContext context) {
         elevation: 0,
         title: const Text(
           'PROPERTY LISTING',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1.1,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.1),
         ),
       ),
       body: RefreshIndicator(
-  color: gold,
-  backgroundColor: navy,
-  onRefresh: _loadListings,
-  child: ListView(
-    physics: const AlwaysScrollableScrollPhysics(),
-    padding: const EdgeInsets.all(20),
-    children: [
-          const Text(
-            'Find Your Property',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 26,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-
-          const SizedBox(height: 6),
-
-          const Text(
-  'Browse properties for sale and rent.',
-  style: TextStyle(
-    color: Colors.white60,
-    fontSize: 14,
-  ),
-),
-
-const SizedBox(height: 22),
-
-// BUY / RENT
-Row(
-  children: [
-    Expanded(
-      child: ChoiceChip(
-        label: const SizedBox(
-          width: double.infinity,
-          child: Text(
-            'BUY',
-            textAlign: TextAlign.center,
-          ),
-        ),
-        selected: selectedPurpose == 'BUY',
-        onSelected: (_) {
-          setState(() {
-            selectedPurpose = 'BUY';
-          });
-        },
-        backgroundColor: navy,
-        selectedColor: gold,
-        side: BorderSide(
-          color: selectedPurpose == 'BUY'
-              ? gold
-              : const Color(0x66D4AF37),
-        ),
-        labelStyle: TextStyle(
-          color: selectedPurpose == 'BUY'
-              ? deepNavy
-              : Colors.white,
-          fontSize: 14,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 1,
-        ),
-        showCheckmark: false,
-        padding: const EdgeInsets.symmetric(
-          vertical: 12,
-        ),
-      ),
-    ),
-
-    const SizedBox(width: 12),
-
-    Expanded(
-      child: ChoiceChip(
-        label: const SizedBox(
-          width: double.infinity,
-          child: Text(
-            'RENT',
-            textAlign: TextAlign.center,
-          ),
-        ),
-        selected: selectedPurpose == 'RENT',
-        onSelected: (_) {
-          setState(() {
-            selectedPurpose = 'RENT';
-          });
-        },
-        backgroundColor: navy,
-        selectedColor: gold,
-        side: BorderSide(
-          color: selectedPurpose == 'RENT'
-              ? gold
-              : const Color(0x66D4AF37),
-        ),
-        labelStyle: TextStyle(
-          color: selectedPurpose == 'RENT'
-              ? deepNavy
-              : Colors.white,
-          fontSize: 14,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 1,
-        ),
-        showCheckmark: false,
-        padding: const EdgeInsets.symmetric(
-          vertical: 12,
-        ),
-      ),
-    ),
-  ],
-),
-
-const SizedBox(height: 16),
-
-// SEARCH
-TextField(
-  controller: searchController,
-  style: const TextStyle(
-    color: Colors.white,
-  ),
-  onChanged: (_) {
-    setState(() {});
-  },
-  decoration: InputDecoration(
-    hintText:
-        'Search Location, Property or Keyword...',
-    hintStyle: const TextStyle(
-      color: Colors.white38,
-    ),
-    prefixIcon: const Icon(
-      Icons.search_rounded,
-      color: gold,
-      size: 28,
-    ),
-    suffixIcon: searchController.text.isNotEmpty
-        ? IconButton(
-            onPressed: () {
-              searchController.clear();
-              setState(() {});
-            },
-            icon: const Icon(
-              Icons.close_rounded,
-              color: Colors.white54,
-            ),
-          )
-        : null,
-    filled: true,
-    fillColor: navy,
-    enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(16),
-      borderSide: const BorderSide(
-        color: Color(0x66D4AF37),
-      ),
-    ),
-    focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(16),
-      borderSide: const BorderSide(
         color: gold,
-        width: 1.5,
-      ),
-    ),
-  ),
-),
-
-const SizedBox(height: 16),
-
-// LOCATION + PROPERTY TYPE
-Row(
-  crossAxisAlignment: CrossAxisAlignment.start,
-  children: [
-    Expanded(
-      child: DropdownButtonFormField<String>(
-        initialValue: selectedLocation,
-        dropdownColor: navy,
-        isExpanded: true,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-        ),
-        decoration: InputDecoration(
-          labelText: 'LOCATION',
-          labelStyle: const TextStyle(
-            color: softGold,
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-          ),
-          prefixIcon: const Icon(
-            Icons.location_on_outlined,
-            color: gold,
-          ),
-          filled: true,
-          fillColor: navy,
-          enabledBorder: OutlineInputBorder(
-            borderRadius:
-                BorderRadius.circular(16),
-            borderSide: const BorderSide(
-              color: Color(0x66D4AF37),
-            ),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius:
-                BorderRadius.circular(16),
-            borderSide: const BorderSide(
-              color: gold,
-              width: 1.5,
-            ),
-          ),
-        ),
-        items: locations.map((location) {
-          return DropdownMenuItem<String>(
-            value: location,
-            child: Text(
-              location,
-              overflow: TextOverflow.ellipsis,
-            ),
-          );
-        }).toList(),
-        onChanged: (value) {
-          if (value != null) {
-            setState(() {
-              selectedLocation = value;
-            });
-          }
-        },
-      ),
-    ),
-
-    const SizedBox(width: 12),
-
-    Expanded(
-      child: DropdownButtonFormField<String>(
-        initialValue: selectedPropertyType,
-        dropdownColor: navy,
-        isExpanded: true,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-        ),
-        decoration: InputDecoration(
-          labelText: 'PROPERTY TYPE',
-          labelStyle: const TextStyle(
-            color: softGold,
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-          ),
-          prefixIcon: const Icon(
-            Icons.home_work_outlined,
-            color: gold,
-          ),
-          filled: true,
-          fillColor: navy,
-          enabledBorder: OutlineInputBorder(
-            borderRadius:
-                BorderRadius.circular(16),
-            borderSide: const BorderSide(
-              color: Color(0x66D4AF37),
-            ),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius:
-                BorderRadius.circular(16),
-            borderSide: const BorderSide(
-              color: gold,
-              width: 1.5,
-            ),
-          ),
-        ),
-        items: propertyTypes.map((type) {
-          return DropdownMenuItem<String>(
-            value: type,
-            child: Text(
-              type,
-              overflow: TextOverflow.ellipsis,
-            ),
-          );
-        }).toList(),
-        onChanged: (value) {
-          if (value != null) {
-            setState(() {
-              selectedPropertyType = value;
-            });
-          }
-        },
-      ),
-    ),
-  ],
-),
-
-const SizedBox(height: 28),
-
-if (isLoading)
-  Container(
-    padding: const EdgeInsets.symmetric(
-      vertical: 45,
-    ),
-    child: const Column(
-      children: [
-        CircularProgressIndicator(
-          color: gold,
-        ),
-        SizedBox(height: 16),
-        Text(
-          'Loading latest properties...',
-          style: TextStyle(
-            color: Colors.white60,
-            fontSize: 13,
-          ),
-        ),
-      ],
-    ),
-  )
-else if (loadError != null)
-  Container(
-    padding: const EdgeInsets.all(24),
-    decoration: BoxDecoration(
-      color: navy,
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(
-        color: const Color(0x66D4AF37),
-      ),
-    ),
-    child: Column(
-      children: [
-        const Icon(
-          Icons.wifi_off_rounded,
-          color: gold,
-          size: 50,
-        ),
-
-        const SizedBox(height: 14),
-
-        const Text(
-          'Unable to load properties',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 17,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-
-        const SizedBox(height: 14),
-
-        OutlinedButton.icon(
-          onPressed: _loadListings,
-          icon: const Icon(
-            Icons.refresh_rounded,
-          ),
-          label: const Text('TRY AGAIN'),
-        ),
-      ],
-    ),
-  )
-else if (filteredListings.isEmpty)
-  Container(
-    padding: const EdgeInsets.symmetric(
-      horizontal: 20,
-      vertical: 40,
-    ),
-    decoration: BoxDecoration(
-      color: navy,
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(
-        color: const Color(0x55D4AF37),
-      ),
-    ),
-    child: const Column(
-      children: [
-        Icon(
-          Icons.search_off_rounded,
-          color: gold,
-          size: 60,
-        ),
-
-        SizedBox(height: 16),
-
-        Text(
-          'NO PROPERTY FOUND',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-
-        SizedBox(height: 8),
-
-        Text(
-          'Try another location or property type.',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.white60,
-            fontSize: 13,
-          ),
-        ),
-      ],
-    ),
-  )
-else ...[
-  Text(
-    '${filteredListings.length} PROPERTIES FOUND',
-    style: const TextStyle(
-      color: softGold,
-      fontSize: 13,
-      fontWeight: FontWeight.w900,
-      letterSpacing: 0.7,
-    ),
-  ),
-
-  const SizedBox(height: 14),
-
-  LayoutBuilder(
-  builder: (context, constraints) {
-    final double width = constraints.maxWidth;
-
-    // PHONE = 2 cards
-// WEB / DESKTOP = 5 cards
-final int columns = width >= 900 ? 5 : 2;
-
-final double spacing = width >= 900 ? 14 : 10;
-
-return GridView.builder(
-  shrinkWrap: true,
-  physics: const NeverScrollableScrollPhysics(),
-  itemCount: filteredListings.length,
-
-  gridDelegate:
-      SliverGridDelegateWithFixedCrossAxisCount(
-    crossAxisCount: columns,
-    crossAxisSpacing: spacing,
-    mainAxisSpacing: spacing,
-
-    // Taller card for property information
-    childAspectRatio: width >= 900 ? 0.58 : 0.62,
-  ),
-
-      itemBuilder: (context, index) {
-        final listing = filteredListings[index];
-
-        return _buildListingCard(listing);
-      },
-    );
-  },
-),
-],
-
-          const SizedBox(height: 24),
-
-          const Center(
-            child: Text(
-              'SIMPLE. SMART. PROPERTY.',
+        backgroundColor: navy,
+        onRefresh: _loadListings,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          children: [
+            const Text(
+              'Find Your Property',
               style: TextStyle(
-                color: softGold,
-                fontSize: 11,
+                color: Colors.white,
+                fontSize: 26,
                 fontWeight: FontWeight.w900,
-                letterSpacing: 1.5,
               ),
             ),
-          ),
-             ],
-    ),
-  ),
-);
-}
+
+            const SizedBox(height: 6),
+
+            const Text(
+              'Browse properties for sale and rent.',
+              style: TextStyle(color: Colors.white60, fontSize: 14),
+            ),
+
+            const SizedBox(height: 22),
+
+            // BUY / RENT
+            Row(
+              children: [
+                Expanded(
+                  child: ChoiceChip(
+                    label: const SizedBox(
+                      width: double.infinity,
+                      child: Text('BUY', textAlign: TextAlign.center),
+                    ),
+                    selected: selectedPurpose == 'BUY',
+                    onSelected: (_) {
+                      setState(() {
+                        selectedPurpose = 'BUY';
+                      });
+                    },
+                    backgroundColor: navy,
+                    selectedColor: gold,
+                    side: BorderSide(
+                      color: selectedPurpose == 'BUY'
+                          ? gold
+                          : const Color(0x66D4AF37),
+                    ),
+                    labelStyle: TextStyle(
+                      color: selectedPurpose == 'BUY' ? deepNavy : Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1,
+                    ),
+                    showCheckmark: false,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+
+                const SizedBox(width: 12),
+
+                Expanded(
+                  child: ChoiceChip(
+                    label: const SizedBox(
+                      width: double.infinity,
+                      child: Text('RENT', textAlign: TextAlign.center),
+                    ),
+                    selected: selectedPurpose == 'RENT',
+                    onSelected: (_) {
+                      setState(() {
+                        selectedPurpose = 'RENT';
+                      });
+                    },
+                    backgroundColor: navy,
+                    selectedColor: gold,
+                    side: BorderSide(
+                      color: selectedPurpose == 'RENT'
+                          ? gold
+                          : const Color(0x66D4AF37),
+                    ),
+                    labelStyle: TextStyle(
+                      color: selectedPurpose == 'RENT'
+                          ? deepNavy
+                          : Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1,
+                    ),
+                    showCheckmark: false,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // SEARCH
+            TextField(
+              controller: searchController,
+              style: const TextStyle(color: Colors.white),
+              onChanged: (_) {
+                setState(() {});
+              },
+              decoration: InputDecoration(
+                hintText: 'Search Location, Property or Keyword...',
+                hintStyle: const TextStyle(color: Colors.white38),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: gold,
+                  size: 28,
+                ),
+                suffixIcon: searchController.text.isNotEmpty
+                    ? IconButton(
+                        onPressed: () {
+                          searchController.clear();
+                          setState(() {});
+                        },
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          color: Colors.white54,
+                        ),
+                      )
+                    : null,
+                filled: true,
+                fillColor: navy,
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(color: Color(0x66D4AF37)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(color: gold, width: 1.5),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // LOCATION + PROPERTY TYPE
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: selectedLocation,
+                    dropdownColor: navy,
+                    isExpanded: true,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'LOCATION',
+                      labelStyle: const TextStyle(
+                        color: softGold,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                      prefixIcon: const Icon(
+                        Icons.location_on_outlined,
+                        color: gold,
+                      ),
+                      filled: true,
+                      fillColor: navy,
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(color: Color(0x66D4AF37)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(color: gold, width: 1.5),
+                      ),
+                    ),
+                    items: locations.map((location) {
+                      return DropdownMenuItem<String>(
+                        value: location,
+                        child: Text(location, overflow: TextOverflow.ellipsis),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          selectedLocation = value;
+                        });
+                      }
+                    },
+                  ),
+                ),
+
+                const SizedBox(width: 12),
+
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: selectedPropertyType,
+                    dropdownColor: navy,
+                    isExpanded: true,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'PROPERTY TYPE',
+                      labelStyle: const TextStyle(
+                        color: softGold,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                      prefixIcon: const Icon(
+                        Icons.home_work_outlined,
+                        color: gold,
+                      ),
+                      filled: true,
+                      fillColor: navy,
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(color: Color(0x66D4AF37)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(color: gold, width: 1.5),
+                      ),
+                    ),
+                    items: propertyTypes.map((type) {
+                      return DropdownMenuItem<String>(
+                        value: type,
+                        child: Text(type, overflow: TextOverflow.ellipsis),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          selectedPropertyType = value;
+                        });
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+
+                        const SizedBox(height: 18),
+
+            if (widget.maxBudget != null && widget.maxBudget! > 0) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                decoration: BoxDecoration(
+                  color: gold.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: const Color(0x66D4AF37),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.account_balance_wallet_outlined,
+                      color: gold,
+                      size: 22,
+                    ),
+
+                    const SizedBox(width: 10),
+
+                    Expanded(
+                      child: Text(
+                        'Showing properties within ${formatMoneyValue(widget.maxBudget)}',
+                        style: const TextStyle(
+                          color: softGold,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 18),
+            ],
+
+            if (isLoading)
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 45),
+                child: const Column(
+                  children: [
+                    CircularProgressIndicator(color: gold),
+                    SizedBox(height: 16),
+                    Text(
+                      'Loading latest properties...',
+                      style: TextStyle(color: Colors.white60, fontSize: 13),
+                    ),
+                  ],
+                ),
+              )
+            else if (loadError != null)
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: navy,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0x66D4AF37)),
+                ),
+                child: Column(
+                  children: [
+                    const Icon(Icons.wifi_off_rounded, color: gold, size: 50),
+
+                    const SizedBox(height: 14),
+
+                    const Text(
+                      'Unable to load properties',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    OutlinedButton.icon(
+                      onPressed: _loadListings,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('TRY AGAIN'),
+                    ),
+                  ],
+                ),
+              )
+            else if (filteredListings.isEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 40,
+                ),
+                decoration: BoxDecoration(
+                  color: navy,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0x55D4AF37)),
+                ),
+                child: const Column(
+                  children: [
+                    Icon(Icons.search_off_rounded, color: gold, size: 60),
+
+                    SizedBox(height: 16),
+
+                    Text(
+                      'NO PROPERTY FOUND',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+
+                    SizedBox(height: 8),
+
+                    Text(
+                      'Try another location or property type.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white60, fontSize: 13),
+                    ),
+                  ],
+                ),
+              )
+            else ...[
+              Text(
+                '${filteredListings.length} PROPERTIES FOUND',
+                style: const TextStyle(
+                  color: softGold,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.7,
+                ),
+              ),
+
+              const SizedBox(height: 14),
+
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final double width = constraints.maxWidth;
+
+                  // PHONE = 2 cards
+                  // WEB / DESKTOP = 5 cards
+                  final int columns = width >= 900 ? 5 : 2;
+
+                  final double spacing = width >= 900 ? 14 : 10;
+
+                  return GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: filteredListings.length,
+
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      crossAxisSpacing: spacing,
+                      mainAxisSpacing: spacing,
+
+                      // Taller card for property information
+                      childAspectRatio: width >= 900 ? 0.58 : 0.56,
+                    ),
+
+                    itemBuilder: (context, index) {
+                      final listing = filteredListings[index];
+
+                      return _buildListingCard(listing);
+                    },
+                  );
+                },
+              ),
+            ],
+
+            const SizedBox(height: 24),
+
+            const Center(
+              child: Text(
+                'SIMPLE. SMART. PROPERTY.',
+                style: TextStyle(
+                  color: softGold,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.5,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
+}
 
 class PropertyImageWithWatermark extends StatelessWidget {
   final String imageUrl;
@@ -4877,25 +5288,50 @@ class PropertyImageWithWatermark extends StatelessWidget {
       children: [
         // PROPERTY IMAGE
         imageUrl.trim().isNotEmpty
-            ? Image.network(
-                imageUrl.trim(),
-                fit: fit,
-                errorBuilder: (
-                  context,
-                  error,
-                  stackTrace,
-                ) {
-                  return Container(
-                    color: deepNavy,
-                    child: const Center(
-                      child: Icon(
-                        Icons.broken_image_outlined,
-                        color: gold,
-                        size: 55,
+            ? Stack(
+                fit: StackFit.expand,
+                children: [
+                  // BLURRED BACKGROUND
+                  ClipRect(
+                    child: ImageFiltered(
+                      imageFilter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                      child: Transform.scale(
+                        scale: 1.18,
+                        child: Image.network(
+                          imageUrl.trim(),
+                          fit: BoxFit.cover,
+                          alignment: Alignment.center,
+                          errorBuilder: (context, error, stackTrace) {
+                            return const ColoredBox(color: deepNavy);
+                          },
+                        ),
                       ),
                     ),
-                  );
-                },
+                  ),
+
+                  // DARK OVERLAY
+                  Container(color: Colors.black.withValues(alpha: 0.18)),
+
+                  // ORIGINAL IMAGE — NO CROPPING
+                  Padding(
+                    padding: const EdgeInsets.all(2),
+                    child: Image.network(
+                      imageUrl.trim(),
+                      fit: BoxFit.contain,
+                      alignment: Alignment.center,
+                      filterQuality: FilterQuality.high,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Center(
+                          child: Icon(
+                            Icons.broken_image_outlined,
+                            color: gold,
+                            size: 55,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               )
             : Container(
                 color: deepNavy,
@@ -4913,36 +5349,20 @@ class PropertyImageWithWatermark extends StatelessWidget {
           right: 10,
           bottom: 10,
           child: Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 4,
-              vertical: 2,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(
-                alpha: 0.45,
-              ),
-              borderRadius: BorderRadius.circular(
-                8,
-              ),
-              border: Border.all(
-                color: Colors.white24,
-              ),
+              color: Colors.black.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white24),
             ),
             child: Text(
               'MK KHAIRUL',
               style: TextStyle(
-                color: Colors.white.withValues(
-                  alpha: 0.88,
-                ),
+                color: Colors.white.withValues(alpha: 0.88),
                 fontSize: watermarkFontSize,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 1.2,
-                shadows: const [
-                  Shadow(
-                    blurRadius: 4,
-                    color: Colors.black87,
-                  ),
-                ],
+                shadows: const [Shadow(blurRadius: 4, color: Colors.black87)],
               ),
             ),
           ),
@@ -4955,10 +5375,7 @@ class PropertyImageWithWatermark extends StatelessWidget {
 class PropertyDetailScreen extends StatelessWidget {
   final Map<String, dynamic> property;
 
-  const PropertyDetailScreen({
-    super.key,
-    required this.property,
-  });
+  const PropertyDetailScreen({super.key, required this.property});
 
   static const navy = Color(0xFF071A2C);
   static const deepNavy = Color(0xFF03111E);
@@ -5023,8 +5440,7 @@ class PropertyDetailScreen extends StatelessWidget {
       return compact;
     }
 
-    final currentPrice =
-        _number(property['Current Price']);
+    final currentPrice = _number(property['Current Price']);
 
     if (currentPrice > 0) {
       return 'RM ${_formatMoney(currentPrice)}';
@@ -5034,15 +5450,29 @@ class PropertyDetailScreen extends StatelessWidget {
   }
 
   bool _usesMaskedPublicPrice() {
-    final category =
-        _field('Listing Category').toUpperCase();
-    final publicPrice =
-        _field('Listing Price').toUpperCase();
+    final category = _field('Listing Category').toUpperCase();
+    final publicPrice = _field('Listing Price').toUpperCase();
 
     return category.startsWith('NEW') ||
         publicPrice.contains('XX') ||
         publicPrice.contains('FROM');
   }
+
+  double _affordabilityPrice() {
+  final currentPrice = _number(property['Current Price']);
+
+  if (currentPrice > 0) {
+    return currentPrice;
+  }
+
+  final listingPrice = _number(property['Listing Price']);
+
+  if (listingPrice > 0) {
+    return listingPrice;
+  }
+
+  return 0;
+}
 
   List<String> get images {
     final result = <String>[];
@@ -5058,98 +5488,111 @@ class PropertyDetailScreen extends StatelessWidget {
     return result;
   }
 
-  Widget _detailRow(
-  BuildContext context,
-  String label,
-  String value,
-) {
-  if (value.trim().isEmpty ||
-      value.trim() == '-') {
-    return const SizedBox.shrink();
-  }
+  Widget _detailRow(BuildContext context, String label, String value) {
+    if (value.trim().isEmpty || value.trim() == '-') {
+      return const SizedBox.shrink();
+    }
 
-  final double screenWidth =
-      MediaQuery.sizeOf(context).width;
+    final double screenWidth = MediaQuery.sizeOf(context).width;
 
-  final bool isWebDesktop =
-      kIsWeb && screenWidth >= 900;
+    final bool isWebDesktop = kIsWeb && screenWidth >= 900;
 
-  final bool isWebMobile =
-      kIsWeb && screenWidth < 900;
+    final bool isWebMobile = kIsWeb && screenWidth < 900;
 
-  // =====================================
-  // WEB DESKTOP
-  // =====================================
-  if (isWebDesktop) {
+    // =====================================
+    // WEB DESKTOP
+    // =====================================
+    if (isWebDesktop) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 165,
+              child: Text(
+                label,
+                style: const TextStyle(color: Colors.white60, fontSize: 13),
+              ),
+            ),
+
+            const SizedBox(width: 18),
+
+            Flexible(
+              child: Text(
+                value,
+                textAlign: TextAlign.left,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // =====================================
+    // WEB MOBILE
+    // =====================================
+    if (isWebMobile) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 115,
+              child: Text(
+                label,
+                style: const TextStyle(color: Colors.white60, fontSize: 12),
+              ),
+            ),
+
+            const SizedBox(width: 10),
+
+            Expanded(
+              child: Text(
+                value,
+                textAlign: TextAlign.left,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // =====================================
+    // ANDROID APP - KEKALKAN ASAL
+    // =====================================
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        vertical: 7,
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 7),
       child: Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 165,
+          Expanded(
             child: Text(
               label,
-              style: const TextStyle(
-                color: Colors.white60,
-                fontSize: 13,
-              ),
+              style: const TextStyle(color: Colors.white60, fontSize: 13),
             ),
           ),
 
-          const SizedBox(width: 18),
-
-          Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.left,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // =====================================
-  // WEB MOBILE
-  // =====================================
-  if (isWebMobile) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        vertical: 6,
-      ),
-      child: Row(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 115,
-            child: Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white60,
-                fontSize: 12,
-              ),
-            ),
-          ),
-
-          const SizedBox(width: 10),
+          const SizedBox(width: 15),
 
           Expanded(
             child: Text(
               value,
-              textAlign: TextAlign.left,
+              textAlign: TextAlign.right,
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 12,
+                fontSize: 13,
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -5158,53 +5601,13 @@ class PropertyDetailScreen extends StatelessWidget {
       ),
     );
   }
-
-  // =====================================
-  // ANDROID APP - KEKALKAN ASAL
-  // =====================================
-  return Padding(
-    padding: const EdgeInsets.symmetric(
-      vertical: 7,
-    ),
-    child: Row(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white60,
-              fontSize: 13,
-            ),
-          ),
-        ),
-
-        const SizedBox(width: 15),
-
-        Expanded(
-          child: Text(
-            value,
-            textAlign: TextAlign.right,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
-}
 
   Future<void> _contactMKKhairul() async {
     final id = _field('ID');
     final title = _field('Title');
     final location = _field('Location');
 
-    final sheetMessage =
-        _field('WhatsApp Message');
+    final sheetMessage = _field('WhatsApp Message');
 
     final message = sheetMessage.isNotEmpty
         ? sheetMessage
@@ -5230,41 +5633,32 @@ Boleh bantu saya?
     );
 
     if (!launched) {
-      await launchUrl(
-        whatsappUrl,
-        mode: LaunchMode.platformDefault,
-      );
+      await launchUrl(whatsappUrl, mode: LaunchMode.platformDefault);
     }
   }
 
-Future<void> _shareProperty(
-  BuildContext context,
-) async {
-  final id = _field('ID');
-  final title = _field('Title');
-  final location = _field('Location');
-  final state = _field('State');
+  Future<void> _shareProperty(BuildContext context) async {
+    final id = _field('ID');
+    final title = _field('Title');
+    final location = _field('Location');
+    final state = _field('State');
 
-  final displayPrice =
-      _publicListingPrice();
+    final displayPrice = _publicListingPrice();
 
-  const whatsappLink =
-      'https://wa.me/601153599092';
+    const whatsappLink = 'https://wa.me/601153599092';
 
-  const appDownloadLink =
-      'https://github.com/Mkkhairul/mk-khairul-property-tools/releases/download/v1.0.0-beta/MK-Khairul-property-Tools.apk';
-  
-  final propertyLink =
-    'https://mk-khairul-property-tools.pages.dev/property/${Uri.encodeComponent(id)}';
+    const appDownloadLink =
+        'https://github.com/Mkkhairul/mk-khairul-property-tools/releases/download/v1.0.0-beta/MK-Khairul-property-Tools.apk';
 
-  final message = '''
+    final propertyLink =
+        'https://mk-khairul-property-tools.pages.dev/property/${Uri.encodeComponent(id)}';
+
+    final message =
+        '''
 🏡 ${title.isEmpty ? 'PROPERTY FOR SALE / RENT' : title}
 
 💰 $displayPrice
-📍 ${[
-    location,
-    state,
-  ].where((value) => value.isNotEmpty).join(', ')}
+📍 ${[location, state].where((value) => value.isNotEmpty).join(', ')}
 🆔 Property ID: ${id.isEmpty ? '-' : id}
 
 📲 WhatsApp MK Khairul:
@@ -5280,43 +5674,34 @@ MK KHAIRUL
 SIMPLE. SMART. PROPERTY.
 ''';
 
-  if (kIsWeb) {
-  await Clipboard.setData(
-    ClipboardData(text: message),
-  );
+    if (kIsWeb) {
+      await Clipboard.setData(ClipboardData(text: message));
 
-  if (!context.mounted) return;
+      if (!context.mounted) return;
 
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text(
-        'Property details copied! You can now paste and share it.',
-      ),
-    ),
-  );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Property details copied! You can now paste and share it.',
+          ),
+        ),
+      );
 
-  return;
-}
+      return;
+    }
 
-final box =
-    context.findRenderObject() as RenderBox?;
+    final box = context.findRenderObject() as RenderBox?;
 
-await SharePlus.instance.share(
-  ShareParams(
-    text: message,
-    subject: title.isEmpty
-        ? 'MK KHAIRUL Property'
-        : title,
-    sharePositionOrigin:
-        box == null
+    await SharePlus.instance.share(
+      ShareParams(
+        text: message,
+        subject: title.isEmpty ? 'MK KHAIRUL Property' : title,
+        sharePositionOrigin: box == null
             ? null
-            : box.localToGlobal(
-                  Offset.zero,
-                ) &
-                box.size,
-  ),
-);
-}
+            : box.localToGlobal(Offset.zero) & box.size,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -5327,614 +5712,600 @@ await SharePlus.instance.share(
 
     final location = _field('Location');
     final state = _field('State');
-    final propertyType =
-        _field('Property Type');
+    final propertyType = _field('Property Type');
 
-    final originalPrice =
-        _number(property['Original Price']);
+    final originalPrice = _number(property['Original Price']);
 
-    final currentPrice =
-        _number(property['Current Price']);
+    final currentPrice = _number(property['Current Price']);
 
-    final displayPrice =
-        _publicListingPrice();
+    final displayPrice = _publicListingPrice();
 
-    final usesMaskedPublicPrice =
-        _usesMaskedPublicPrice();
+    final usesMaskedPublicPrice = _usesMaskedPublicPrice();
+
+    final affordabilityPrice = _affordabilityPrice();
+
+final canCheckAffordability =
+    affordabilityPrice > 0 && !usesMaskedPublicPrice;
 
     final hasReduction =
         !usesMaskedPublicPrice &&
         originalPrice > currentPrice &&
         currentPrice > 0;
 
-    final saving = hasReduction
-        ? originalPrice - currentPrice
-        : 0;
+    final saving = hasReduction ? originalPrice - currentPrice : 0;
 
-    final description =
-        _field('Description');
+    final description = _field('Description');
 
     final imageList = images;
 
     return Scaffold(
       backgroundColor: deepNavy,
       appBar: AppBar(
-  backgroundColor: deepNavy,
-  foregroundColor: Colors.white,
-  elevation: 0,
+        backgroundColor: deepNavy,
+        foregroundColor: Colors.white,
+        elevation: 0,
 
-  leading: IconButton(
-    tooltip: 'Back',
-    icon: const Icon(
-      Icons.arrow_back_rounded,
-      color: Colors.white,
-    ),
-    onPressed: () {
-      if (Navigator.canPop(context)) {
-        Navigator.pop(context);
-      } else {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const HomeScreen(),
-          ),
-        );
-      }
-    },
-  ),
+        leading: IconButton(
+          tooltip: 'Back',
+          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+          onPressed: () {
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            } else {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (_) => const HomeScreen()),
+              );
+            }
+          },
+        ),
 
-  title: const Text(
-    'VIEW PROPERTY',
-    style: TextStyle(
-      fontWeight: FontWeight.w900,
-      letterSpacing: 1,
-    ),
-  ),
-  actions: [
-    IconButton(
-  tooltip: 'View More Listings',
-  icon: const Icon(
-    Icons.real_estate_agent_outlined,
-    color: gold,
-  ),
-  onPressed: () {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const PropertyListingScreen(),
-      ),
-    );
-  },
-),
-    IconButton(
-      tooltip: 'Home',
-      icon: const Icon(
-        Icons.home_rounded,
-        color: gold,
-      ),
-      onPressed: () {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const HomeScreen(),
-          ),
-          (route) => false,
-        );
-      },
-    ),
-    const SizedBox(width: 8),
-  ],
-),
-      body: Center(
-  child: ConstrainedBox(
-    constraints: const BoxConstraints(
-      maxWidth: 1400,
-    ),
-    child: ListView(
-      padding: const EdgeInsets.only(
-        bottom: 30,
-      ),
-      children: [
-          // IMAGE GALLERY
-if (imageList.isNotEmpty)
-  LayoutBuilder(
-    builder: (context, constraints) {
-      
-
-      // PHONE
-      if (!kIsWeb) {
-        return SizedBox(
-          height: 280,
-          child: PageView.builder(
-            itemCount: imageList.length,
-            itemBuilder: (context, index) {
-              return Stack(
-                children: [
-                  Positioned.fill(
-                    child: PropertyImageWithWatermark(
-                    imageUrl: imageList[index],
-                    fit: BoxFit.contain,
-                    watermarkFontSize: 12,
-                  ),
-                  ),
-
-                  Positioned(
-                    top: 12,
-                    right: 12,
-                    child: Container(
-                      padding:
-                          const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(
-                          alpha: 0.55,
-                        ),
-                        borderRadius:
-                            BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        '${index + 1} / ${imageList.length}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight:
-                              FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+        title: const Text(
+          'VIEW PROPERTY',
+          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'View More Listings',
+            icon: const Icon(Icons.real_estate_agent_outlined, color: gold),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const PropertyListingScreen(),
+                ),
               );
             },
           ),
-        );
-      }
-
-      // WEB RESPONSIVE GALLERY
-final bool isWebDesktop =
-    constraints.maxWidth >= 900;
-
-final controller = PageController(
-  viewportFraction:
-      isWebDesktop ? 0.333 : 1.0,
-);
-
-return Padding(
-  padding: EdgeInsets.symmetric(
-    horizontal: isWebDesktop ? 18 : 12,
-    vertical: isWebDesktop ? 16 : 10,
-  ),
-  child: SizedBox(
-    height: isWebDesktop ? 300 : 320,
-    child: ScrollConfiguration(
-      behavior:
-          const MaterialScrollBehavior()
-              .copyWith(
-        dragDevices: {
-          PointerDeviceKind.touch,
-          PointerDeviceKind.mouse,
-          PointerDeviceKind.trackpad,
-        },
-      ),
-      child: PageView.builder(
-        controller: controller,
-        padEnds: false,
-        itemCount: imageList.length,
-        itemBuilder: (context, index) {
-          return Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal:
-                  isWebDesktop ? 6 : 0,
-            ),
-            child: ClipRRect(
-              borderRadius:
-                  BorderRadius.circular(16),
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child:
-                        PropertyImageWithWatermark(
-                      imageUrl:
-                          imageList[index],
-
-                      // WEB:
-                      // tunjuk gambar penuh
-                      fit: BoxFit.contain,
-
-                      watermarkFontSize:
-                          isWebDesktop
-                              ? 11
-                              : 12,
-                    ),
-                  ),
-
-                  Positioned(
-                    top: 10,
-                    right: 10,
-                    child: Container(
-                      padding:
-                          const EdgeInsets.symmetric(
-                        horizontal: 9,
-                        vertical: 4,
-                      ),
-                      decoration:
-                          BoxDecoration(
-                        color: Colors.black
-                            .withValues(
-                          alpha: 0.55,
-                        ),
-                        borderRadius:
-                            BorderRadius.circular(
-                          20,
-                        ),
-                      ),
-                      child: Text(
-                        '${index + 1} / ${imageList.length}',
-                        style:
-                            const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight:
-                              FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    ),
-  ),
-);
-    },
-  )
-          else
-            const SizedBox(
-              height: 250,
-              child: PropertyImageWithWatermark(
-                imageUrl: '',
-              ),
-            ),
-
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-                // STATUS
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (status.isNotEmpty)
-                      _badge(status),
-
-                    if (priceTag.isNotEmpty)
-                      _badge(priceTag),
-                  ],
-                ),
-
-                const SizedBox(height: 16),
-
-                // PRICE
-                if (hasReduction)
-                  Text(
-                    'RM ${_formatMoney(originalPrice)}',
-                    style: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 16,
-                      decoration:
-                          TextDecoration
-                              .lineThrough,
-                    ),
-                  ),
-
-                if (hasReduction)
-                  const SizedBox(height: 4),
-
-                Text(
-                  displayPrice,
-                  style: const TextStyle(
-                    color: softGold,
-                    fontSize: 28,
-                    fontWeight:
-                        FontWeight.w900,
-                  ),
-                ),
-
-                if (hasReduction) ...[
-                  const SizedBox(height: 5),
-                  Text(
-                    'SAVE RM ${_formatMoney(saving)}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight:
-                          FontWeight.w900,
-                    ),
-                  ),
-                ],
-
-                const SizedBox(height: 18),
-
-                Text(
-                  title.isEmpty
-                      ? 'PROPERTY'
-                      : title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight:
-                        FontWeight.w900,
-                    height: 1.2,
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-
-                if (id.isNotEmpty)
-                  Text(
-                    'Property ID: $id',
-                    style: const TextStyle(
-                      color: softGold,
-                      fontSize: 12,
-                      fontWeight:
-                          FontWeight.w700,
-                    ),
-                  ),
-
-                const SizedBox(height: 12),
-
-                Row(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    const Icon(
-                      Icons.location_on_outlined,
-                      color: gold,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 7),
-                    Expanded(
-                      child: Text(
-                        [
-                          location,
-                          state,
-                        ]
-                            .where(
-                              (value) =>
-                                  value.isNotEmpty,
-                            )
-                            .join(', '),
-                        style:
-                            const TextStyle(
-                          color:
-                              Colors.white70,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 22),
-
-                const Divider(
-                  color: Color(0x44D4AF37),
-                ),
-
-                const SizedBox(height: 12),
-
-                const Text(
-                  'PROPERTY DETAILS',
-                  style: TextStyle(
-                    color: softGold,
-                    fontSize: 15,
-                    fontWeight:
-                        FontWeight.w900,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-
-                const SizedBox(height: 10),
-
-                _detailRow(
-  context,
-  'Property Type',
-  propertyType,
-),
-
-_detailRow(
-  context,
-  'Bedroom',
-  _field('Bedroom'),
-),
-
-_detailRow(
-  context,
-  'Bathroom',
-  _field('Bathroom'),
-),
-
-_detailRow(
-  context,
-  'Built Up',
-  _field('Built Up (sq ft)'),
-),
-
-_detailRow(
-  context,
-  'Land Size',
-  _field('Land Size'),
-),
-
-_detailRow(
-  context,
-  'Tenure',
-  _field('Tenure'),
-),
-
-_detailRow(
-  context,
-  'Land Type',
-  _field('Land Type'),
-),
-
-_detailRow(
-  context,
-  'Title Type',
-  _field('Title Type'),
-),
-
-_detailRow(
-  context,
-  'Bumi Lot',
-  _field('Bumi Lot'),
-),
-
-                if (description.isNotEmpty) ...[
-                  const SizedBox(height: 20),
-
-                  const Divider(
-                    color: Color(0x44D4AF37),
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  const Text(
-                    'DESCRIPTION',
-                    style: TextStyle(
-                      color: softGold,
-                      fontSize: 15,
-                      fontWeight:
-                          FontWeight.w900,
-                    ),
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  Text(
-                    description,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      height: 1.6,
-                    ),
-                  ),
-                ],
-
-                const SizedBox(height: 28),
-
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: FilledButton.icon(
-                    style:
-                        FilledButton.styleFrom(
-                      backgroundColor: gold,
-                      foregroundColor:
-                          deepNavy,
-                      shape:
-                          RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(
-                          16,
-                        ),
-                      ),
-                    ),
-                    onPressed:
-                        _contactMKKhairul,
-                    icon: const Icon(
-                      Icons
-                          .chat_bubble_outline,
-                    ),
-                    label: const Text(
-                      'ENQUIRE ON WHATSAPP',
-                      style: TextStyle(
-                        fontWeight:
-                            FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-
-SizedBox(
-  width: double.infinity,
-  height: 56,
-  child: OutlinedButton.icon(
-    style: OutlinedButton.styleFrom(
-      foregroundColor: gold,
-      side: const BorderSide(
-        color: gold,
-        width: 1.3,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius:
-            BorderRadius.circular(16),
-      ),
-    ),
-    onPressed: () {
-      _shareProperty(context);
-    },
-    icon: const Icon(
-      Icons.share_outlined,
-    ),
-    label: const Text(
-      'SHARE PROPERTY',
-      style: TextStyle(
-        fontWeight: FontWeight.w900,
-      ),
-    ),
-  ),
-),
-
-const SizedBox(height: 22),
-
-                const Center(
-                  child: Text(
-                    'SIMPLE. SMART. PROPERTY.',
-                    style: TextStyle(
-                      color: softGold,
-                      fontSize: 11,
-                      fontWeight:
-                          FontWeight.w900,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          IconButton(
+            tooltip: 'Home',
+            icon: const Icon(Icons.home_rounded, color: gold),
+            onPressed: () {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const HomeScreen()),
+                (route) => false,
+              );
+            },
           ),
+          const SizedBox(width: 8),
         ],
       ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1400),
+          child: ListView(
+            padding: const EdgeInsets.only(bottom: 30),
+            children: [
+              // IMAGE GALLERY
+              if (imageList.isNotEmpty)
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    // PHONE
+                    if (!kIsWeb) {
+                      return SizedBox(
+                        height: 280,
+                        child: PageView.builder(
+                          itemCount: imageList.length,
+                          itemBuilder: (context, index) {
+                            return Stack(
+                              children: [
+                                Positioned.fill(
+                                  child: PropertyImageWithWatermark(
+                                    imageUrl: imageList[index],
+                                    fit: BoxFit.contain,
+                                    watermarkFontSize: 12,
+                                  ),
+                                ),
+
+                                Positioned(
+                                  top: 12,
+                                  right: 12,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.55,
+                                      ),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Text(
+                                      '${index + 1} / ${imageList.length}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      );
+                    }
+
+                    // WEB RESPONSIVE GALLERY
+                    final bool isWebDesktop = constraints.maxWidth >= 900;
+
+                    final controller = PageController(
+                      viewportFraction: isWebDesktop ? 0.333 : 1.0,
+                    );
+
+                    return Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isWebDesktop ? 18 : 12,
+                        vertical: isWebDesktop ? 16 : 10,
+                      ),
+                      child: SizedBox(
+                        height: isWebDesktop ? 300 : 320,
+                        child: ScrollConfiguration(
+                          behavior: const MaterialScrollBehavior().copyWith(
+                            dragDevices: {
+                              PointerDeviceKind.touch,
+                              PointerDeviceKind.mouse,
+                              PointerDeviceKind.trackpad,
+                            },
+                          ),
+                          child: PageView.builder(
+                            controller: controller,
+                            padEnds: false,
+                            itemCount: imageList.length,
+                            itemBuilder: (context, index) {
+                              return Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: isWebDesktop ? 6 : 0,
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Stack(
+                                    children: [
+                                      Positioned.fill(
+                                        child: PropertyImageWithWatermark(
+                                          imageUrl: imageList[index],
+
+                                          // WEB:
+                                          // tunjuk gambar penuh
+                                          fit: BoxFit.contain,
+
+                                          watermarkFontSize: isWebDesktop
+                                              ? 11
+                                              : 12,
+                                        ),
+                                      ),
+
+                                      Positioned(
+                                        top: 10,
+                                        right: 10,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 9,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.55,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              20,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            '${index + 1} / ${imageList.length}',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                )
+              else
+                const SizedBox(
+                  height: 250,
+                  child: PropertyImageWithWatermark(imageUrl: ''),
+                ),
+
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // STATUS
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (status.isNotEmpty) _badge(status),
+
+                        if (priceTag.isNotEmpty) _badge(priceTag),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // PRICE
+                    if (hasReduction)
+                      Text(
+                        'RM ${_formatMoney(originalPrice)}',
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 16,
+                          decoration: TextDecoration.lineThrough,
+                        ),
+                      ),
+
+                    if (hasReduction) const SizedBox(height: 4),
+
+                    Text(
+                      displayPrice,
+                      style: const TextStyle(
+                        color: softGold,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+
+                    if (hasReduction) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        'SAVE RM ${_formatMoney(saving)}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+
+                    const SizedBox(height: 18),
+
+                    Text(
+                      title.isEmpty ? 'PROPERTY' : title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                        height: 1.2,
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    if (id.isNotEmpty)
+                      Text(
+                        'Property ID: $id',
+                        style: const TextStyle(
+                          color: softGold,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+
+                    const SizedBox(height: 12),
+
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.location_on_outlined,
+                          color: gold,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            [
+                              location,
+                              state,
+                            ].where((value) => value.isNotEmpty).join(', '),
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 22),
+
+                    const Divider(color: Color(0x44D4AF37)),
+
+                    const SizedBox(height: 12),
+
+                    const Text(
+                      'PROPERTY DETAILS',
+                      style: TextStyle(
+                        color: softGold,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    _detailRow(context, 'Property Type', propertyType),
+
+                    _detailRow(context, 'Bedroom', _field('Bedroom')),
+
+                    _detailRow(context, 'Bathroom', _field('Bathroom')),
+
+                    _detailRow(context, 'Built Up', _field('Built Up (sq ft)')),
+
+                    _detailRow(context, 'Land Size', _field('Land Size')),
+
+                    _detailRow(context, 'Tenure', _field('Tenure')),
+
+                    _detailRow(context, 'Land Type', _field('Land Type')),
+
+                    _detailRow(context, 'Title Type', _field('Title Type')),
+
+                    _detailRow(context, 'Bumi Lot', _field('Bumi Lot')),
+
+                    if (description.isNotEmpty) ...[
+                      const SizedBox(height: 20),
+
+                      const Divider(color: Color(0x44D4AF37)),
+
+                      const SizedBox(height: 12),
+
+                      const Text(
+                        'DESCRIPTION',
+                        style: TextStyle(
+                          color: softGold,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      Text(
+                        description,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          height: 1.6,
+                        ),
+                      ),
+                    ],
+
+     const SizedBox(height: 28),
+
+if (canCheckAffordability) ...[
+  SizedBox(
+    width: double.infinity,
+    height: 56,
+    child: OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: gold,
+        side: const BorderSide(
+          color: gold,
+          width: 1.3,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+      ),
+      onPressed: () {
+        final propertyPrice = _affordabilityPrice();
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => LoanEligibilityScreen(
+              propertyPrice: propertyPrice,
+              propertyTitle: title,
+            ),
+          ),
+        );
+      },
+      icon: const Icon(Icons.calculate_outlined),
+      label: const Text(
+        'CAN I AFFORD THIS?',
+        style: TextStyle(
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    ),
+  ),
+
+  const SizedBox(height: 12),
+],
+
+if (canCheckAffordability) ...[
+  SizedBox(
+    width: double.infinity,
+    height: 56,
+    child: OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: gold,
+        side: const BorderSide(
+          color: gold,
+          width: 1.3,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+      ),
+      onPressed: () {
+        final propertyPrice = _affordabilityPrice();
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => LoanCalculatorScreen(
+              initialPropertyPrice: propertyPrice,
+              propertyTitle: title,
+            ),
+          ),
+        );
+      },
+      icon: const Icon(Icons.calculate_rounded),
+      label: const Text(
+        'CALCULATE LOAN FOR THIS PROPERTY',
+        style: TextStyle(
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    ),
+  ),
+
+  const SizedBox(height: 12),
+],
+
+if (canCheckAffordability) ...[
+  SizedBox(
+    width: double.infinity,
+    height: 56,
+    child: OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: gold,
+        side: const BorderSide(
+          color: gold,
+          width: 1.3,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+      ),
+      onPressed: () {
+        final propertyPrice = _affordabilityPrice();
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => InvestmentCalculatorScreen(
+              initialPropertyPrice: propertyPrice,
+              propertyTitle: title,
+            ),
+          ),
+        );
+      },
+      icon: const Icon(Icons.trending_up_rounded),
+      label: const Text(
+        'CHECK INVESTMENT POTENTIAL',
+        style: TextStyle(
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    ),
+  ),
+
+  const SizedBox(height: 12),
+],
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: gold,
+                          foregroundColor: deepNavy,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        onPressed: _contactMKKhairul,
+                        icon: const Icon(Icons.chat_bubble_outline),
+                        label: const Text(
+                          'ENQUIRE ON WHATSAPP',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: gold,
+                          side: const BorderSide(color: gold, width: 1.3),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        onPressed: () {
+                          _shareProperty(context);
+                        },
+                        icon: const Icon(Icons.share_outlined),
+                        label: const Text(
+                          'SHARE PROPERTY',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 22),
+
+                    const Center(
+                      child: Text(
+                        'SIMPLE. SMART. PROPERTY.',
+                        style: TextStyle(
+                          color: softGold,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ), // ConstrainedBox
-  ), // Center
-); // Scaffold
+      ), // Center
+    ); // Scaffold
   }
 
   Widget _badge(String text) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 6,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: gold.withValues(
-          alpha: 0.12,
-        ),
-        borderRadius:
-            BorderRadius.circular(20),
-        border: Border.all(
-          color: gold,
-        ),
+        color: gold.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: gold),
       ),
       child: Text(
         text.toUpperCase(),
@@ -5956,17 +6327,10 @@ class MKHomeHubScreen extends StatelessWidget {
   static const gold = Color(0xFFD4AF37);
   static const softGold = Color(0xFFF2D675);
 
-  void _openRequestForm(
-    BuildContext context,
-    String service,
-  ) {
+  void _openRequestForm(BuildContext context, String service) {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => MKHomeHubRequestForm(
-          service: service,
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => MKHomeHubRequestForm(service: service)),
     );
   }
 
@@ -5980,10 +6344,7 @@ class MKHomeHubScreen extends StatelessWidget {
         elevation: 0,
         title: const Text(
           'MK HOME HUB',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1.2,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.2),
         ),
       ),
       body: ListView(
@@ -6002,11 +6363,7 @@ class MKHomeHubScreen extends StatelessWidget {
 
           const Text(
             'From property management to renovation, utilities, licensing and more.',
-            style: TextStyle(
-              color: Colors.white60,
-              fontSize: 14,
-              height: 1.4,
-            ),
+            style: TextStyle(color: Colors.white60, fontSize: 14, height: 1.4),
           ),
 
           const SizedBox(height: 24),
@@ -6014,78 +6371,54 @@ class MKHomeHubScreen extends StatelessWidget {
           MKHomeHubCard(
             icon: Icons.apartment_outlined,
             title: 'PROPERTY MANAGEMENT',
-            subtitle:
-                'Rental • Investment • Homestay • Sale • Maintenance',
+            subtitle: 'Rental • Investment • Homestay • Sale • Maintenance',
             onTap: () {
-              _openRequestForm(
-                context,
-                'Property Management',
-              );
+              _openRequestForm(context, 'Property Management');
             },
           ),
 
           MKHomeHubCard(
             icon: Icons.chair_outlined,
             title: 'INTERIOR DESIGN',
-            subtitle:
-                'Residential • Commercial • Office • Furnishing',
+            subtitle: 'Residential • Commercial • Office • Furnishing',
             onTap: () {
-              _openRequestForm(
-                context,
-                'Interior Design',
-              );
+              _openRequestForm(context, 'Interior Design');
             },
           ),
 
           MKHomeHubCard(
             icon: Icons.construction_outlined,
             title: 'RENOVATION & CONSTRUCTION',
-            subtitle:
-                'Land • Residential • Commercial • Factory',
+            subtitle: 'Land • Residential • Commercial • Factory',
             onTap: () {
-              _openRequestForm(
-                context,
-                'Renovation & Construction',
-              );
+              _openRequestForm(context, 'Renovation & Construction');
             },
           ),
 
           MKHomeHubCard(
             icon: Icons.electrical_services_outlined,
             title: 'UTILITIES SETUP',
-            subtitle:
-                'WiFi • Electricity • Water • New Registration',
+            subtitle: 'WiFi • Electricity • Water • New Registration',
             onTap: () {
-              _openRequestForm(
-                context,
-                'Utilities Setup',
-              );
+              _openRequestForm(context, 'Utilities Setup');
             },
           ),
 
           MKHomeHubCard(
             icon: Icons.carpenter_outlined,
             title: 'CARPENTER & HOME SUPPLIES',
-            subtitle:
-                'Cabinet • Wardrobe • Sofa • Mattress • Custom Work',
+            subtitle: 'Cabinet • Wardrobe • Sofa • Mattress • Custom Work',
             onTap: () {
-              _openRequestForm(
-                context,
-                'Carpenter & Home Supplies',
-              );
+              _openRequestForm(context, 'Carpenter & Home Supplies');
             },
           ),
 
           MKHomeHubCard(
             icon: Icons.support_agent_outlined,
             title: 'PROPERTY CONSULTATION',
-            subtitle:
-                'Land • Conversion • Planning • Build • Fully Furnished',
+            subtitle: 'Land • Conversion • Planning • Build • Fully Furnished',
             onTap: () {
-              _openRequestForm(
-                context,
-                'Property Consultation',
-              );
+              _openRequestForm(context, 'Property Consultation');
             },
           ),
 
@@ -6095,23 +6428,16 @@ class MKHomeHubScreen extends StatelessWidget {
             subtitle:
                 'Business License • Renovation Permit • Other Applications',
             onTap: () {
-              _openRequestForm(
-                context,
-                'License & Permit',
-              );
+              _openRequestForm(context, 'License & Permit');
             },
           ),
 
           MKHomeHubCard(
             icon: Icons.campaign_outlined,
             title: 'SIGNBOARD & ADVERTISING',
-            subtitle:
-                'Banner • Bunting • Light Box • LED • Signage',
+            subtitle: 'Banner • Bunting • Light Box • LED • Signage',
             onTap: () {
-              _openRequestForm(
-                context,
-                'Signboard & Advertising',
-              );
+              _openRequestForm(context, 'Signboard & Advertising');
             },
           ),
 
@@ -6166,10 +6492,7 @@ class MKHomeHubCard extends StatelessWidget {
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: gold,
-                width: 1.3,
-              ),
+              border: Border.all(color: gold, width: 1.3),
             ),
             child: Row(
               children: [
@@ -6180,11 +6503,7 @@ class MKHomeHubCard extends StatelessWidget {
                     color: gold.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Icon(
-                    icon,
-                    color: gold,
-                    size: 38,
-                  ),
+                  child: Icon(icon, color: gold, size: 38),
                 ),
 
                 const SizedBox(width: 16),
@@ -6230,21 +6549,17 @@ class MKHomeHubCard extends StatelessWidget {
     );
   }
 }
+
 class MKHomeHubRequestForm extends StatefulWidget {
   final String service;
 
-  const MKHomeHubRequestForm({
-    super.key,
-    required this.service,
-  });
+  const MKHomeHubRequestForm({super.key, required this.service});
 
   @override
-  State<MKHomeHubRequestForm> createState() =>
-      _MKHomeHubRequestFormState();
+  State<MKHomeHubRequestForm> createState() => _MKHomeHubRequestFormState();
 }
 
-class _MKHomeHubRequestFormState
-    extends State<MKHomeHubRequestForm> {
+class _MKHomeHubRequestFormState extends State<MKHomeHubRequestForm> {
   static const navy = Color(0xFF071A2C);
   static const deepNavy = Color(0xFF03111E);
   static const gold = Color(0xFFD4AF37);
@@ -6274,21 +6589,14 @@ class _MKHomeHubRequestFormState
   InputDecoration _fieldDecoration(String label) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(
-        color: Colors.white70,
-      ),
+      labelStyle: const TextStyle(color: Colors.white70),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: Color(0x66D4AF37),
-        ),
+        borderSide: const BorderSide(color: Color(0x66D4AF37)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(
-          color: gold,
-          width: 1.5,
-        ),
+        borderSide: const BorderSide(color: gold, width: 1.5),
       ),
       filled: true,
       fillColor: navy,
@@ -6304,15 +6612,14 @@ class _MKHomeHubRequestFormState
     if (!consent) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Please confirm your consent before continuing.',
-          ),
+          content: Text('Please confirm your consent before continuing.'),
         ),
       );
       return;
     }
 
-    final message = '''
+    final message =
+        '''
 Hi MK Khairul,
 
 Saya dari MK KHAIRUL Property Tools.
@@ -6355,10 +6662,7 @@ Thank you.
     );
 
     if (!launched) {
-      await launchUrl(
-        whatsappUrl,
-        mode: LaunchMode.platformDefault,
-      );
+      await launchUrl(whatsappUrl, mode: LaunchMode.platformDefault);
     }
   }
 
@@ -6371,10 +6675,7 @@ Thank you.
         foregroundColor: Colors.white,
         title: const Text(
           'MK HOME HUB',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1),
         ),
       ),
       body: ListView(
@@ -6393,11 +6694,7 @@ Thank you.
 
           const Text(
             'Tell us what you need and MK Khairul will assist with the next step.',
-            style: TextStyle(
-              color: Colors.white60,
-              fontSize: 14,
-              height: 1.4,
-            ),
+            style: TextStyle(color: Colors.white60, fontSize: 14, height: 1.4),
           ),
 
           const SizedBox(height: 24),
@@ -6408,18 +6705,11 @@ Thank you.
             decoration: BoxDecoration(
               color: navy,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: gold,
-                width: 1.2,
-              ),
+              border: Border.all(color: gold, width: 1.2),
             ),
             child: Row(
               children: [
-                const Icon(
-                  Icons.check_circle_outline,
-                  color: gold,
-                  size: 24,
-                ),
+                const Icon(Icons.check_circle_outline, color: gold, size: 24),
 
                 const SizedBox(width: 12),
 
@@ -6460,9 +6750,7 @@ Thank you.
             controller: addressController,
             maxLines: 3,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Property / Project Address',
-            ),
+            decoration: _fieldDecoration('Property / Project Address'),
           ),
 
           const SizedBox(height: 14),
@@ -6471,9 +6759,7 @@ Thank you.
             controller: workController,
             maxLines: 4,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'What would you like to do?',
-            ),
+            decoration: _fieldDecoration('What would you like to do?'),
           ),
 
           const SizedBox(height: 14),
@@ -6481,23 +6767,16 @@ Thank you.
           TextField(
             controller: preferredDateController,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'When would you like to start?',
-            ),
+            decoration: _fieldDecoration('When would you like to start?'),
           ),
 
           const SizedBox(height: 14),
 
           TextField(
             controller: budgetController,
-            keyboardType:
-                const TextInputType.numberWithOptions(
-              decimal: true,
-            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Estimated Budget',
-            ),
+            decoration: _fieldDecoration('Estimated Budget'),
           ),
 
           const SizedBox(height: 14),
@@ -6506,9 +6785,7 @@ Thank you.
             controller: notesController,
             maxLines: 4,
             style: const TextStyle(color: Colors.white),
-            decoration: _fieldDecoration(
-              'Additional Notes',
-            ),
+            decoration: _fieldDecoration('Additional Notes'),
           ),
 
           const SizedBox(height: 18),
@@ -6518,8 +6795,7 @@ Thank you.
             activeColor: gold,
             checkColor: deepNavy,
             contentPadding: EdgeInsets.zero,
-            controlAffinity:
-                ListTileControlAffinity.leading,
+            controlAffinity: ListTileControlAffinity.leading,
             title: const Text(
               'I consent to providing these details to MK Khairul for service enquiry and consultation purposes.',
               style: TextStyle(
@@ -6544,19 +6820,14 @@ Thank you.
                 backgroundColor: gold,
                 foregroundColor: deepNavy,
                 shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(16),
                 ),
               ),
               onPressed: _submitToWhatsApp,
-              icon: const Icon(
-                Icons.chat_bubble_outline,
-              ),
+              icon: const Icon(Icons.chat_bubble_outline),
               label: const Text(
                 'CONTINUE TO WHATSAPP',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                ),
+                style: TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
           ),
@@ -6566,11 +6837,7 @@ Thank you.
           const Text(
             'Please review your information carefully before sending.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white38,
-              fontSize: 11,
-              height: 1.4,
-            ),
+            style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
           ),
         ],
       ),
@@ -6578,16 +6845,110 @@ Thank you.
   }
 }
 
-class LoanEligibilityScreen extends StatefulWidget {
-  const LoanEligibilityScreen({super.key});
+class CalculatorJourneyHeader extends StatelessWidget {
+  final int currentStep;
+
+  const CalculatorJourneyHeader({super.key, required this.currentStep});
+
+  static const navy = Color(0xFF0B1F33);
+  static const gold = Color(0xFFD4AF37);
+  static const softGold = Color(0xFFF2D675);
 
   @override
-  State<LoanEligibilityScreen> createState() =>
-      _LoanEligibilityScreenState();
+  Widget build(BuildContext context) {
+    const labels = ['BUYING POWER', 'LOAN', 'INVESTMENT'];
+
+    const icons = [
+      Icons.account_balance_wallet_outlined,
+      Icons.calculate_outlined,
+      Icons.trending_up_rounded,
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: navy,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0x55D4AF37)),
+      ),
+      child: Row(
+        children: List.generate(3, (index) {
+          final step = index + 1;
+          final active = step == currentStep;
+          final completed = step < currentStep;
+
+          return Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 250),
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: active || completed
+                              ? gold
+                              : gold.withValues(alpha: 0.08),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: gold),
+                        ),
+                        child: Icon(
+                          completed ? Icons.check_rounded : icons[index],
+                          color: active || completed ? navy : softGold,
+                          size: 20,
+                        ),
+                      ),
+
+                      const SizedBox(height: 7),
+
+                      Text(
+                        labels[index],
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: active ? softGold : Colors.white54,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                if (index < 2)
+                  Container(
+                    width: 18,
+                    height: 1.5,
+                    color: completed ? gold : Colors.white12,
+                  ),
+              ],
+            ),
+          );
+        }),
+      ),
+    );
+  }
 }
 
-class _LoanEligibilityScreenState
-    extends State<LoanEligibilityScreen> {
+class LoanEligibilityScreen extends StatefulWidget {
+  final double? propertyPrice;
+  final String? propertyTitle;
+
+  const LoanEligibilityScreen({
+    super.key,
+    this.propertyPrice,
+    this.propertyTitle,
+  });
+
+  @override
+  State<LoanEligibilityScreen> createState() => _LoanEligibilityScreenState();
+}
+
+class _LoanEligibilityScreenState extends State<LoanEligibilityScreen> {
   static const navy = Color(0xFF0B1F33);
   static const gold = Color(0xFFD4AF37);
 
@@ -6597,10 +6958,119 @@ class _LoanEligibilityScreenState
   double dsrLimit = 60;
   double interestRate = 4.0;
   double maxLoan = 0;
+  double estimatedPropertyBudget = 0;
+  double estimatedMonthlyInstalment = 0;
+  double currentDSR = 0;
   double availablePayment = 0;
   bool calculated = false;
 
+  final GlobalKey _resultCardKey = GlobalKey();
+
   int tenure = 35;
+
+  double get targetPropertyPrice {
+  return widget.propertyPrice ?? 0;
+}
+
+bool get hasTargetProperty {
+  return targetPropertyPrice > 0;
+}
+
+String get targetPropertyTitle {
+  return (widget.propertyTitle ?? '').trim();
+}
+
+bool get hasTargetPropertyTitle {
+  return targetPropertyTitle.isNotEmpty;
+}
+
+double get affordabilityDifference {
+  if (!hasTargetProperty || !calculated) {
+    return 0;
+  }
+
+  return estimatedPropertyBudget - targetPropertyPrice;
+}
+
+bool get canAffordTargetProperty {
+  return hasTargetProperty &&
+      calculated &&
+      estimatedPropertyBudget >= targetPropertyPrice;
+}
+
+Future<void> _saveResultAsImage() async {
+  try {
+    final boundary = _resultCardKey.currentContext?.findRenderObject()
+        as RenderRepaintBoundary?;
+
+    if (boundary == null) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to capture result. Please try again.'),
+        ),
+      );
+      return;
+    }
+
+    final image = await boundary.toImage(
+      pixelRatio: 3.0,
+    );
+
+    final byteData = await image.toByteData(
+      format: ui.ImageByteFormat.png,
+    );
+
+    if (byteData == null) {
+      throw Exception('Unable to create image.');
+    }
+
+    final pngBytes = byteData.buffer.asUint8List();
+
+    if (kIsWeb) {
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            XFile.fromData(
+              pngBytes,
+              mimeType: 'image/png',
+              name: 'mk_khairul_buying_power.png',
+            ),
+          ],
+          text: 'MK KHAIRUL Property Tools - Buying Power Estimate',
+        ),
+      );
+
+      return;
+    }
+
+    await Gal.putImageBytes(
+      pngBytes,
+      name: 'MK_KHAIRUL_Buying_Power',
+    );
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Buying Power result saved to gallery.',
+        ),
+      ),
+    );
+  } catch (e) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Unable to save image: $e',
+        ),
+      ),
+    );
+  }
+}
 
   void calculateEligibility() {
     final income =
@@ -6611,17 +7081,20 @@ class _LoanEligibilityScreenState
 
     if (income <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter your monthly income.'),
-        ),
+        const SnackBar(content: Text('Please enter your monthly income.')),
       );
       return;
     }
 
+    // Maximum total monthly debt allowed
+    // based on the selected DSR limit.
     final maxDebt = income * (dsrLimit / 100);
+
+    // Amount still available for housing instalment.
     final payment = max(0.0, maxDebt - commitments);
 
     final monthlyRate = (interestRate / 100) / 12;
+
     final months = tenure * 12;
 
     double loan = 0;
@@ -6630,24 +7103,34 @@ class _LoanEligibilityScreenState
       if (monthlyRate == 0) {
         loan = payment * months;
       } else {
-        loan = payment *
-            (1 - pow(1 + monthlyRate, -months)) /
-            monthlyRate;
+        loan = payment * (1 - pow(1 + monthlyRate, -months)) / monthlyRate;
       }
     }
 
+    // Current commitments-to-income ratio.
+    final calculatedDSR = income > 0 ? (commitments / income) * 100 : 0.0;
+
+    // Estimated property price assuming
+    // 90% housing financing.
+    final propertyBudget = loan > 0 ? loan / 0.90 : 0.0;
+
     setState(() {
       availablePayment = payment;
+
       maxLoan = loan;
+
+      estimatedPropertyBudget = propertyBudget;
+
+      estimatedMonthlyInstalment = payment;
+
+      currentDSR = calculatedDSR;
+
       calculated = true;
     });
   }
 
   String money(double value) {
-    return 'RM ${value.toStringAsFixed(0).replaceAllMapped(
-          RegExp(r'\B(?=(\d{3})+(?!\d))'),
-          (match) => ',',
-        )}';
+    return formatMoneyValue(value);
   }
 
   @override
@@ -6668,6 +7151,10 @@ class _LoanEligibilityScreenState
       body: ListView(
         padding: const EdgeInsets.all(22),
         children: [
+          const CalculatorJourneyHeader(currentStep: 1),
+
+          const SizedBox(height: 24),
+
           const Text(
             'How Much Can I Borrow?',
             style: TextStyle(
@@ -6681,13 +7168,64 @@ class _LoanEligibilityScreenState
 
           const Text(
             'Get a quick estimate of your housing loan eligibility.',
-            style: TextStyle(
-              fontSize: 15,
-              height: 1.4,
-            ),
+            style: TextStyle(fontSize: 15, height: 1.4),
           ),
 
           const SizedBox(height: 28),
+
+if (hasTargetProperty) ...[
+  Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: navy,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(
+        color: const Color(0x55D4AF37),
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'PROPERTY TO CHECK',
+          style: TextStyle(
+            color: gold,
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.8,
+          ),
+        ),
+
+        const SizedBox(height: 8),
+
+        if ((widget.propertyTitle ?? '').trim().isNotEmpty)
+          Text(
+            widget.propertyTitle!.trim(),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+
+        if ((widget.propertyTitle ?? '').trim().isNotEmpty)
+          const SizedBox(height: 6),
+
+        Text(
+          money(targetPropertyPrice),
+          style: const TextStyle(
+            color: gold,
+            fontSize: 22,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
+    ),
+  ),
+
+  const SizedBox(height: 18),
+],
 
           _MoneyField(
             controller: incomeController,
@@ -6707,10 +7245,7 @@ class _LoanEligibilityScreenState
 
           Text(
             'Estimated DSR Limit: ${dsrLimit.toStringAsFixed(0)}%',
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              color: navy,
-            ),
+            style: const TextStyle(fontWeight: FontWeight.w700, color: navy),
           ),
 
           Slider(
@@ -6754,15 +7289,13 @@ class _LoanEligibilityScreenState
 
           TextFormField(
             initialValue: interestRate.toStringAsFixed(1),
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(
               labelText: 'Estimated Interest Rate (%)',
               border: OutlineInputBorder(),
             ),
             onChanged: (value) {
-              interestRate =
-                  double.tryParse(value) ?? 4.0;
+              interestRate = double.tryParse(value) ?? 4.0;
             },
           ),
 
@@ -6788,129 +7321,485 @@ class _LoanEligibilityScreenState
             ),
           ),
 
-         if (calculated) ...[
-  const SizedBox(height: 28),
+          if (calculated) ...[
+            const SizedBox(height: 28),
 
-  Container(
-    padding: const EdgeInsets.all(22),
-    decoration: BoxDecoration(
-      color: navy,
-      borderRadius: BorderRadius.circular(24),
-    ),
-    child: Column(
-      children: [
-        const Text(
-          'ESTIMATED HOUSING LOAN',
-          style: TextStyle(
-            color: gold,
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1,
-          ),
-        ),
+                        RepaintBoundary(
+              key: _resultCardKey,
+              child: Container(
+                padding: const EdgeInsets.all(22),
+                decoration: BoxDecoration(
+                  color: navy,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Column(
+                children: [
+                  const Text(
+                    'ESTIMATED PROPERTY BUDGET',
+                    style: TextStyle(
+                      color: gold,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1,
+                    ),
+                  ),
 
-        const SizedBox(height: 10),
+                  const SizedBox(height: 10),
 
-        Text(
-          money(maxLoan),
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 36,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
+                  Text(
+                    money(estimatedPropertyBudget),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 36,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
 
-        const SizedBox(height: 22),
+                  const SizedBox(height: 22),
 
-        _ResultRow(
-          label: 'Estimated Property Price',
-          value: money(maxLoan / 0.90),
-        ),
+                  _ResultRow(
+                    label: 'Estimated Housing Loan',
+                    value: money(maxLoan),
+                  ),
 
-        _ResultRow(
-          label: 'Available Monthly Instalment',
-          value: money(availablePayment),
-        ),
+                  _ResultRow(
+                    label: 'Estimated Monthly Instalment',
+                    value: money(estimatedMonthlyInstalment),
+                  ),
 
-        _ResultRow(
-          label: 'DSR Limit Used',
-          value: '${dsrLimit.toStringAsFixed(0)}%',
-        ),
+                  _ResultRow(
+                    label: 'Current DSR',
+                    value: '${currentDSR.toStringAsFixed(1)}%',
+                  ),
 
-        _ResultRow(
-          label: 'Loan Tenure',
-          value: '$tenure years',
-        ),
+                  _ResultRow(
+                    label: 'DSR Limit Used',
+                    value: '${dsrLimit.toStringAsFixed(0)}%',
+                  ),
 
-        _ResultRow(
-          label: 'Estimated Interest Rate',
-          value: '${interestRate.toStringAsFixed(2)}%',
-        ),
-      ],
+                  _ResultRow(label: 'Loan Tenure', value: '$tenure years'),
+
+                  _ResultRow(
+                    label: 'Estimated Interest Rate',
+                    value: '${interestRate.toStringAsFixed(2)}%',
+                  ),
+
+if (hasTargetProperty) ...[
+  const SizedBox(height: 14),
+
+  const Divider(
+    color: Color(0x44D4AF37),
+    height: 1,
+  ),
+
+  const SizedBox(height: 14),
+
+  const Align(
+    alignment: Alignment.centerLeft,
+    child: Text(
+      'PROPERTY AFFORDABILITY',
+      style: TextStyle(
+        color: gold,
+        fontSize: 12,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 0.8,
+      ),
     ),
   ),
 
-  const SizedBox(height: 18),
+  const SizedBox(height: 8),
+
+  _ResultRow(
+    label: 'Property Price',
+    value: money(targetPropertyPrice),
+  ),
+
+  _ResultRow(
+    label: 'Your Buying Power',
+    value: money(estimatedPropertyBudget),
+  ),
+
+  _ResultRow(
+    label: 'Difference',
+    value:
+        '${affordabilityDifference >= 0 ? '+' : '-'}${money(affordabilityDifference.abs())}',
+  ),
+
+  const SizedBox(height: 8),
+
+  Align(
+    alignment: Alignment.centerLeft,
+    child: Text(
+      canAffordTargetProperty
+          ? 'WITHIN ESTIMATED BUDGET'
+          : 'ABOVE ESTIMATED BUDGET',
+      style: TextStyle(
+        color: canAffordTargetProperty
+            ? const Color(0xFF22C55E)
+            : const Color(0xFFE94343),
+        fontSize: 12,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 0.5,
+      ),
+    ),
+  ),
+],
+
+if (hasTargetPropertyTitle) ...[
+  const SizedBox(height: 12),
 
   SizedBox(
-    height: 56,
+    width: double.infinity,
+    height: 50,
     child: FilledButton.icon(
       style: FilledButton.styleFrom(
         backgroundColor: gold,
         foregroundColor: navy,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
         ),
       ),
- onPressed: () {
-  final estimatedPropertyPrice = maxLoan / 0.90;
+      onPressed: () async {
+        final affordabilityStatus = canAffordTargetProperty
+            ? 'WITHIN ESTIMATED BUDGET'
+            : 'ABOVE ESTIMATED BUDGET';
 
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => PropertyEnquiryScreen(
-        initialPurpose: 'Buy',
-        initialBudget: estimatedPropertyPrice,
-      ),
-    ),
-  );
-},
-      icon: const Icon(Icons.search_rounded),
+        final message = '''
+Hi MK Khairul,
+
+Saya berminat dengan property ini:
+
+PROPERTY: $targetPropertyTitle
+PROPERTY PRICE: ${money(targetPropertyPrice)}
+
+MY ESTIMATED BUYING POWER:
+${money(estimatedPropertyBudget)}
+
+AFFORDABILITY STATUS:
+$affordabilityStatus
+
+Boleh bantu saya dengan next step?
+''';
+
+        final whatsappUrl = Uri.parse(
+          'https://wa.me/601153599092?text=${Uri.encodeComponent(message)}',
+        );
+
+        final launched = await launchUrl(
+          whatsappUrl,
+          mode: LaunchMode.externalApplication,
+        );
+
+        if (!launched) {
+          await launchUrl(
+            whatsappUrl,
+            mode: LaunchMode.platformDefault,
+          );
+        }
+      },
+      icon: const Icon(Icons.chat_bubble_outline),
       label: const Text(
-        'FIND A PROPERTY WITHIN MY BUDGET',
+        'ENQUIRE ABOUT THIS PROPERTY',
         style: TextStyle(
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w900,
         ),
       ),
     ),
   ),
 
-  const SizedBox(height: 18),
+const SizedBox(height: 10),
 
-  Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(
-        color: Colors.black12,
+SizedBox(
+  width: double.infinity,
+  height: 50,
+  child: OutlinedButton.icon(
+    style: OutlinedButton.styleFrom(
+      foregroundColor: gold,
+      side: const BorderSide(
+        color: gold,
+        width: 1.3,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
       ),
     ),
-    child: const Text(
-      'Important: This calculator provides an estimate only. '
-      'Actual financing eligibility and property financing margin '
-      'depend on the bank, income profile, age, CCRIS/CTOS, existing '
-      'commitments, property type and the bank’s current credit policy.',
+    onPressed: () {
+      Navigator.pop(context);
+    },
+    icon: const Icon(Icons.arrow_back_rounded),
+    label: const Text(
+      'BACK TO THIS PROPERTY',
       style: TextStyle(
-        fontSize: 12,
-        height: 1.5,
-        color: Colors.black54,
+        fontWeight: FontWeight.w900,
       ),
     ),
   ),
+),
 ],
+
+                  const SizedBox(height: 18),
+
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'BUYING POWER METER',
+                      style: const TextStyle(
+                        color: gold,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: LinearProgressIndicator(
+                      minHeight: 12,
+                      value: dsrLimit > 0
+                          ? (currentDSR / dsrLimit).clamp(0.0, 1.0)
+                          : 0.0,
+                      backgroundColor: Colors.white12,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        currentDSR <= dsrLimit * 0.50
+                            ? const Color(0xFF22C55E)
+                            : currentDSR <= dsrLimit * 0.80
+                            ? gold
+                            : const Color(0xFFE94343),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      currentDSR <= dsrLimit * 0.50
+                          ? 'Strong buying power'
+                          : currentDSR <= dsrLimit * 0.80
+                          ? 'Moderate buying power'
+                          : 'Limited buying power',
+                      style: TextStyle(
+                        color: currentDSR <= dsrLimit * 0.50
+                            ? const Color(0xFF22C55E)
+                            : currentDSR <= dsrLimit * 0.80
+                            ? gold
+                            : const Color(0xFFE94343),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+
+                                  ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 18),
+
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: navy,
+                side: const BorderSide(
+                  color: gold,
+                  width: 1.3,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              onPressed: () {
+                final buyingPowerStatus =
+                    currentDSR <= dsrLimit * 0.50
+                        ? 'Strong'
+                        : currentDSR <= dsrLimit * 0.80
+                            ? 'Moderate'
+                            : 'Limited';
+
+                final shareText = '''
+MK KHAIRUL PROPERTY TOOLS
+BUYING POWER ESTIMATE
+
+Estimated Property Budget:
+${money(estimatedPropertyBudget)}
+
+Estimated Housing Loan:
+${money(maxLoan)}
+
+Estimated Monthly Instalment:
+${money(estimatedMonthlyInstalment)}
+
+Buying Power:
+$buyingPowerStatus
+
+Estimate only. Actual financing is subject to bank assessment.
+''';
+
+                SharePlus.instance.share(
+                  ShareParams(
+                    text: shareText,
+                  ),
+                );
+              },
+              icon: const Icon(
+                Icons.share_outlined,
+                size: 20,
+              ),
+              label: const Text(
+                'SHARE RESULT',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 18),
+
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: navy,
+                side: const BorderSide(
+                  color: gold,
+                  width: 1.3,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              onPressed: _saveResultAsImage,
+              icon: const Icon(
+                Icons.download_rounded,
+                size: 20,
+              ),
+              label: const Text(
+                'SAVE RESULT AS IMAGE',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 18),
+
+          SizedBox(
+            height: 54,
+            child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: gold,
+                  foregroundColor: navy,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const LoanCalculatorScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.arrow_forward_rounded),
+                label: const Text(
+                  'CONTINUE TO LOAN CALCULATOR',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            SizedBox(
+              height: 56,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: gold,
+                  foregroundColor: navy,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PropertyListingScreen(
+                        maxBudget: estimatedPropertyBudget,
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.search_rounded),
+                label: const Text(
+                  'FIND A PROPERTY WITHIN MY BUDGET',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.black12),
+              ),
+              child: const Text(
+                'Important: This calculator provides an estimate only. '
+                'Actual financing eligibility and property financing margin '
+                'depend on the bank, income profile, age, CCRIS/CTOS, existing '
+                'commitments, property type and the bank’s current credit policy.',
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.5,
+                  color: Colors.black54,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
+    );
+  }
+}
+
+class ThousandsSeparatorInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(',', '');
+
+    if (digits.isEmpty) {
+      return const TextEditingValue(
+        text: '',
+        selection: TextSelection.collapsed(offset: 0),
+      );
+    }
+
+    final formatted = digits.replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (match) => ',',
+    );
+
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
     );
   }
 }
@@ -6930,8 +7819,11 @@ class _MoneyField extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
-      keyboardType:
-          const TextInputType.numberWithOptions(decimal: true),
+      keyboardType: TextInputType.number,
+      inputFormatters: [
+        FilteringTextInputFormatter.digitsOnly,
+        ThousandsSeparatorInputFormatter(),
+      ],
       decoration: InputDecoration(
         prefixText: 'RM ',
         labelText: label,
@@ -6946,25 +7838,19 @@ class _ResultRow extends StatelessWidget {
   final String label;
   final String value;
 
-  const _ResultRow({
-    required this.label,
-    required this.value,
-  });
+  const _ResultRow({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
+      padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 13,
-              ),
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
             ),
           ),
           const SizedBox(width: 12),
@@ -6982,6 +7868,7 @@ class _ResultRow extends StatelessWidget {
     );
   }
 }
+
 class PropertyEnquiryScreen extends StatefulWidget {
   final String initialPurpose;
   final double? initialBudget;
@@ -6993,14 +7880,11 @@ class PropertyEnquiryScreen extends StatefulWidget {
   });
 
   @override
-  State<PropertyEnquiryScreen> createState() =>
-      _PropertyEnquiryScreenState();
+  State<PropertyEnquiryScreen> createState() => _PropertyEnquiryScreenState();
 }
 
-class _PropertyEnquiryScreenState
-    extends State<PropertyEnquiryScreen> {
+class _PropertyEnquiryScreenState extends State<PropertyEnquiryScreen> {
   static const navy = Color(0xFF0B1F33);
- 
 
   late String purpose;
 
@@ -7016,8 +7900,12 @@ class _PropertyEnquiryScreenState
     purpose = widget.initialPurpose;
 
     if (widget.initialBudget != null) {
-      budgetController.text =
-          widget.initialBudget!.toStringAsFixed(0);
+      final raw = widget.initialBudget!.toStringAsFixed(0);
+
+      budgetController.text = raw.replaceAllMapped(
+        RegExp(r'\B(?=(\d{3})+(?!\d))'),
+        (match) => ',',
+      );
     }
   }
 
@@ -7052,10 +7940,7 @@ class _PropertyEnquiryScreenState
           const SizedBox(height: 8),
           const Text(
             'We’ll make the enquiry simple and easy.',
-            style: TextStyle(
-              fontSize: 15,
-              height: 1.4,
-            ),
+            style: TextStyle(fontSize: 15, height: 1.4),
           ),
           const SizedBox(height: 24),
 
@@ -7066,18 +7951,9 @@ class _PropertyEnquiryScreenState
               border: OutlineInputBorder(),
             ),
             items: const [
-              DropdownMenuItem(
-                value: 'Buy',
-                child: Text('Buy a Property'),
-              ),
-              DropdownMenuItem(
-                value: 'Rent',
-                child: Text('Rent a Property'),
-              ),
-              DropdownMenuItem(
-                value: 'Sell',
-                child: Text('Sell a Property'),
-              ),
+              DropdownMenuItem(value: 'Buy', child: Text('Buy a Property')),
+              DropdownMenuItem(value: 'Rent', child: Text('Rent a Property')),
+              DropdownMenuItem(value: 'Sell', child: Text('Sell a Property')),
               DropdownMenuItem(
                 value: 'Rent Out',
                 child: Text('Rent Out My Property'),
@@ -7094,14 +7970,10 @@ class _PropertyEnquiryScreenState
 
           const SizedBox(height: 16),
 
-          TextField(
+          _MoneyField(
             controller: budgetController,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              prefixText: 'RM ',
-              labelText: 'Budget / Asking Price',
-              border: OutlineInputBorder(),
-            ),
+            label: 'Budget / Asking Price',
+            hint: 'Example: 500,000',
           ),
 
           const SizedBox(height: 16),
@@ -7140,22 +8012,23 @@ class _PropertyEnquiryScreenState
 
           const SizedBox(height: 24),
 
-         SizedBox(
-  height: 56,
-  child: FilledButton.icon(
-    style: FilledButton.styleFrom(
-      backgroundColor: navy,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-    ),
-    onPressed: () async {
-      final budget = budgetController.text.trim();
-      final location = locationController.text.trim();
-      final propertyType = propertyTypeController.text.trim();
-      final notes = notesController.text.trim();
+          SizedBox(
+            height: 56,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: navy,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              onPressed: () async {
+                final budget = budgetController.text.trim();
+                final location = locationController.text.trim();
+                final propertyType = propertyTypeController.text.trim();
+                final notes = notesController.text.trim();
 
-      final message = '''
+                final message =
+                    '''
 Hi MK Khairul,
 
 Saya dari MK KHAIRUL Property Tools.
@@ -7169,34 +8042,29 @@ NOTES: ${notes.isEmpty ? '-' : notes}
 Boleh bantu saya?
 ''';
 
-      final whatsappUrl = Uri.parse(
-        'https://wa.me/601153599092?text=${Uri.encodeComponent(message)}',
-      );
+                final whatsappUrl = Uri.parse(
+                  'https://wa.me/601153599092?text=${Uri.encodeComponent(message)}',
+                );
 
-final launched = await launchUrl(
-  whatsappUrl,
-  mode: LaunchMode.externalApplication,
-);
+                final launched = await launchUrl(
+                  whatsappUrl,
+                  mode: LaunchMode.externalApplication,
+                );
 
-if (!launched) {
-  await launchUrl(
-    whatsappUrl,
-    mode: LaunchMode.platformDefault,
-  );
-}
-    },
-    icon: const Icon(
-      Icons.chat_bubble_outline,
-    ),
-    label: const Text(
-      'CONTINUE TO WHATSAPP',
-      style: TextStyle(
-        fontWeight: FontWeight.w800,
-      ),
-    ),
-  ),
-),
-
+                if (!launched) {
+                  await launchUrl(
+                    whatsappUrl,
+                    mode: LaunchMode.platformDefault,
+                  );
+                }
+              },
+              icon: const Icon(Icons.chat_bubble_outline),
+              label: const Text(
+                'CONTINUE TO WHATSAPP',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -7204,23 +8072,43 @@ if (!launched) {
 }
 
 class LoanCalculatorScreen extends StatefulWidget {
-  const LoanCalculatorScreen({super.key});
+  final double? initialPropertyPrice;
+  final String? propertyTitle;
+
+  const LoanCalculatorScreen({
+    super.key,
+    this.initialPropertyPrice,
+    this.propertyTitle,
+  });
 
   @override
   State<LoanCalculatorScreen> createState() =>
       _LoanCalculatorScreenState();
 }
 
-class _LoanCalculatorScreenState
-    extends State<LoanCalculatorScreen> {
+class _LoanCalculatorScreenState extends State<LoanCalculatorScreen> {
   static const navy = Color(0xFF0B1F33);
   static const gold = Color(0xFFD4AF37);
 
   final propertyPriceController = TextEditingController();
-  final downPaymentController =
-      TextEditingController(text: '10');
-  final interestRateController =
-      TextEditingController(text: '4.0');
+  final downPaymentController = TextEditingController(text: '10');
+  final interestRateController = TextEditingController(text: '4.0');
+
+@override
+void initState() {
+  super.initState();
+
+  final initialPrice = widget.initialPropertyPrice;
+
+  if (initialPrice != null && initialPrice > 0) {
+    final raw = initialPrice.toStringAsFixed(0);
+
+    propertyPriceController.text = raw.replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (match) => ',',
+    );
+  }
+}
 
   int tenure = 35;
 
@@ -7228,50 +8116,50 @@ class _LoanCalculatorScreenState
   double monthlyPayment = 0;
   double downPaymentAmount = 0;
 
+  double totalPayment = 0;
+  double totalInterest = 0;
+
+  double whatIfInterestRate = 4.0;
+int whatIfTenure = 35;
+
   bool calculated = false;
 
   void calculateLoan() {
     final propertyPrice =
-        double.tryParse(propertyPriceController.text) ?? 0;
+        double.tryParse(propertyPriceController.text.replaceAll(',', '')) ?? 0;
 
-    final downPaymentPercent =
-        double.tryParse(downPaymentController.text) ?? 0;
+    final downPaymentPercent = double.tryParse(downPaymentController.text) ?? 0;
 
-    final annualInterest =
-        double.tryParse(interestRateController.text) ?? 0;
+    final annualInterest = double.tryParse(interestRateController.text) ?? 0;
 
     if (propertyPrice <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter the property price.'),
-        ),
+        const SnackBar(content: Text('Please enter the property price.')),
       );
       return;
     }
 
-    downPaymentAmount =
-        propertyPrice * (downPaymentPercent / 100);
+    downPaymentAmount = propertyPrice * (downPaymentPercent / 100);
 
     loanAmount = propertyPrice - downPaymentAmount;
 
-    final monthlyRate =
-        (annualInterest / 100) / 12;
+    final monthlyRate = (annualInterest / 100) / 12;
 
     final numberOfPayments = tenure * 12;
 
     if (monthlyRate == 0) {
-      monthlyPayment =
-          loanAmount / numberOfPayments;
+      monthlyPayment = loanAmount / numberOfPayments;
     } else {
-      final factor =
-          _power(1 + monthlyRate, numberOfPayments);
+      final factor = _power(1 + monthlyRate, numberOfPayments);
 
-      monthlyPayment =
-          loanAmount *
-              monthlyRate *
-              factor /
-              (factor - 1);
+      monthlyPayment = loanAmount * monthlyRate * factor / (factor - 1);
     }
+
+totalPayment =
+    monthlyPayment * numberOfPayments;
+
+totalInterest =
+    totalPayment - loanAmount;
 
     setState(() {
       calculated = true;
@@ -7288,8 +8176,73 @@ class _LoanCalculatorScreenState
     return result;
   }
 
+double _calculateMonthlyPayment({
+  required double principal,
+  required double annualInterest,
+  required int years,
+}) {
+  if (principal <= 0 || years <= 0) {
+    return 0;
+  }
+
+  final monthlyRate =
+      (annualInterest / 100) / 12;
+
+  final numberOfPayments =
+      years * 12;
+
+  if (monthlyRate == 0) {
+    return principal / numberOfPayments;
+  }
+
+  final factor =
+      _power(
+        1 + monthlyRate,
+        numberOfPayments,
+      );
+
+  return principal *
+      monthlyRate *
+      factor /
+      (factor - 1);
+}
+
+String _loanInsight() {
+  final annualInterest =
+      double.tryParse(interestRateController.text) ?? 0;
+
+  final monthly25 = _calculateMonthlyPayment(
+    principal: loanAmount,
+    annualInterest: annualInterest,
+    years: 25,
+  );
+
+  final monthly35 = _calculateMonthlyPayment(
+    principal: loanAmount,
+    annualInterest: annualInterest,
+    years: 35,
+  );
+
+  final interest25 =
+      (monthly25 * 25 * 12) - loanAmount;
+
+  final interest35 =
+      (monthly35 * 35 * 12) - loanAmount;
+
+  final monthlySaving =
+      monthly25 - monthly35;
+
+  final interestSaving =
+      interest35 - interest25;
+
+  return '35 years reduces the estimated monthly instalment by '
+      '${money(monthlySaving)} compared with 25 years. '
+      'However, 25 years could save approximately '
+      '${money(interestSaving)} in total interest.';
+}
+
   String money(double value) {
-    return 'RM ${value.toStringAsFixed(0)}';
+    return formatMoneyValue(value);
   }
 
   @override
@@ -7312,6 +8265,10 @@ class _LoanCalculatorScreenState
       body: ListView(
         padding: const EdgeInsets.all(22),
         children: [
+          const CalculatorJourneyHeader(currentStep: 2),
+
+          const SizedBox(height: 24),
+
           const Text(
             'Calculate My Loan',
             style: TextStyle(
@@ -7325,36 +8282,22 @@ class _LoanCalculatorScreenState
 
           const Text(
             'Estimate your monthly housing loan payment.',
-            style: TextStyle(
-              fontSize: 15,
-              height: 1.4,
-            ),
+            style: TextStyle(fontSize: 15, height: 1.4),
           ),
 
           const SizedBox(height: 24),
 
-          TextField(
+          _MoneyField(
             controller: propertyPriceController,
-            keyboardType:
-                const TextInputType.numberWithOptions(
-              decimal: true,
-            ),
-            decoration: const InputDecoration(
-              prefixText: 'RM ',
-              labelText: 'Property Price',
-              hintText: 'Example: 500000',
-              border: OutlineInputBorder(),
-            ),
+            label: 'Property Price',
+            hint: 'Example: 500,000',
           ),
 
           const SizedBox(height: 16),
 
           TextField(
             controller: downPaymentController,
-            keyboardType:
-                const TextInputType.numberWithOptions(
-              decimal: true,
-            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(
               suffixText: '%',
               labelText: 'Downpayment',
@@ -7366,10 +8309,7 @@ class _LoanCalculatorScreenState
 
           TextField(
             controller: interestRateController,
-            keyboardType:
-                const TextInputType.numberWithOptions(
-              decimal: true,
-            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(
               suffixText: '%',
               labelText: 'Estimated Interest Rate',
@@ -7386,30 +8326,12 @@ class _LoanCalculatorScreenState
               border: OutlineInputBorder(),
             ),
             items: const [
-              DropdownMenuItem(
-                value: 10,
-                child: Text('10 years'),
-              ),
-              DropdownMenuItem(
-                value: 15,
-                child: Text('15 years'),
-              ),
-              DropdownMenuItem(
-                value: 20,
-                child: Text('20 years'),
-              ),
-              DropdownMenuItem(
-                value: 25,
-                child: Text('25 years'),
-              ),
-              DropdownMenuItem(
-                value: 30,
-                child: Text('30 years'),
-              ),
-              DropdownMenuItem(
-                value: 35,
-                child: Text('35 years'),
-              ),
+              DropdownMenuItem(value: 10, child: Text('10 years')),
+              DropdownMenuItem(value: 15, child: Text('15 years')),
+              DropdownMenuItem(value: 20, child: Text('20 years')),
+              DropdownMenuItem(value: 25, child: Text('25 years')),
+              DropdownMenuItem(value: 30, child: Text('30 years')),
+              DropdownMenuItem(value: 35, child: Text('35 years')),
             ],
             onChanged: (value) {
               if (value != null) {
@@ -7428,16 +8350,13 @@ class _LoanCalculatorScreenState
               style: FilledButton.styleFrom(
                 backgroundColor: navy,
                 shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(16),
                 ),
               ),
               onPressed: calculateLoan,
               child: const Text(
                 'CALCULATE MY LOAN',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                ),
+                style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
           ),
@@ -7449,8 +8368,7 @@ class _LoanCalculatorScreenState
               padding: const EdgeInsets.all(22),
               decoration: BoxDecoration(
                 color: navy,
-                borderRadius:
-                    BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(24),
               ),
               child: Column(
                 children: [
@@ -7480,7 +8398,7 @@ class _LoanCalculatorScreenState
                     label: 'Property Price',
                     value: money(
                       double.tryParse(
-                            propertyPriceController.text,
+                            propertyPriceController.text.replaceAll(',', ''),
                           ) ??
                           0,
                     ),
@@ -7496,22 +8414,420 @@ class _LoanCalculatorScreenState
                     value: money(loanAmount),
                   ),
 
-                  _ResultRow(
-                    label: 'Interest Rate',
-                    value:
-                        '${interestRateController.text}%',
-                  ),
+_ResultRow(
+  label: 'Total Interest',
+  value: money(totalInterest),
+),
+
+_ResultRow(
+  label: 'Total Payment',
+  value: money(totalPayment),
+),
+
+const SizedBox(height: 18),
+
+const Align(
+  alignment: Alignment.centerLeft,
+  child: Text(
+    'PRINCIPAL VS INTEREST',
+    style: TextStyle(
+      color: gold,
+      fontSize: 12,
+      fontWeight: FontWeight.w900,
+      letterSpacing: 0.8,
+    ),
+  ),
+),
+
+const SizedBox(height: 10),
+
+ClipRRect(
+  borderRadius: BorderRadius.circular(20),
+  child: Row(
+    children: [
+      Expanded(
+        flex: totalPayment > 0
+            ? ((loanAmount / totalPayment) * 1000)
+                .round()
+                .clamp(1, 999)
+            : 1,
+        child: Container(
+          height: 12,
+          color: gold,
+        ),
+      ),
+      Expanded(
+        flex: totalPayment > 0
+            ? ((totalInterest / totalPayment) * 1000)
+                .round()
+                .clamp(1, 999)
+            : 1,
+        child: Container(
+          height: 12,
+          color: Colors.white24,
+        ),
+      ),
+    ],
+  ),
+),
+
+const SizedBox(height: 10),
+
+Row(
+  children: [
+    Expanded(
+      child: Text(
+        'Principal ${totalPayment > 0 ? ((loanAmount / totalPayment) * 100).toStringAsFixed(1) : '0.0'}%',
+        style: const TextStyle(
+          color: gold,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    ),
+    Expanded(
+      child: Text(
+        'Interest ${totalPayment > 0 ? ((totalInterest / totalPayment) * 100).toStringAsFixed(1) : '0.0'}%',
+        textAlign: TextAlign.right,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    ),
+  ],
+),
+
+const SizedBox(height: 18),
 
                   _ResultRow(
-                    label: 'Loan Tenure',
-                    value: '$tenure years',
-                  ),
-                ],
+  label: 'Interest Rate',
+  value: '${interestRateController.text}%',
+),
+
+_ResultRow(
+  label: 'Loan Tenure',
+  value: '$tenure years',
+),
+
+const SizedBox(height: 12),
+
+const Align(
+  alignment: Alignment.centerLeft,
+  child: Text(
+    'TENURE COMPARISON',
+    style: TextStyle(
+      color: gold,
+      fontSize: 12,
+      fontWeight: FontWeight.w900,
+      letterSpacing: 0.8,
+    ),
+  ),
+),
+
+const SizedBox(height: 6),
+
+Builder(
+  builder: (context) {
+    final annualInterest =
+        double.tryParse(interestRateController.text) ?? 0;
+
+    final monthly25 = _calculateMonthlyPayment(
+      principal: loanAmount,
+      annualInterest: annualInterest,
+      years: 25,
+    );
+
+    final monthly30 = _calculateMonthlyPayment(
+      principal: loanAmount,
+      annualInterest: annualInterest,
+      years: 30,
+    );
+
+    final monthly35 = _calculateMonthlyPayment(
+      principal: loanAmount,
+      annualInterest: annualInterest,
+      years: 35,
+    );
+
+    final interest25 =
+    (monthly25 * 25 * 12) - loanAmount;
+
+final interest30 =
+    (monthly30 * 30 * 12) - loanAmount;
+
+final interest35 =
+    (monthly35 * 35 * 12) - loanAmount;
+
+    return Column(
+  children: [
+    _ResultRow(
+      label: '25 Years / Month',
+      value: money(monthly25),
+    ),
+    _ResultRow(
+      label: '25 Years / Total Interest',
+      value: money(interest25),
+    ),
+
+    const Divider(
+      color: Colors.white12,
+      height: 10,
+    ),
+
+    _ResultRow(
+      label: '30 Years / Month',
+      value: money(monthly30),
+    ),
+    _ResultRow(
+      label: '30 Years / Total Interest',
+      value: money(interest30),
+    ),
+
+    const Divider(
+      color: Colors.white12,
+      height: 10,
+    ),
+
+    _ResultRow(
+      label: '35 Years / Month',
+      value: money(monthly35),
+    ),
+    _ResultRow(
+      label: '35 Years / Total Interest',
+      value: money(interest35),
+    ),
+  ],
+);
+  },
+),
+const SizedBox(height: 14),
+
+const Divider(
+  color: Colors.white12,
+  height: 10,
+),
+
+const SizedBox(height: 10),
+
+const Align(
+  alignment: Alignment.centerLeft,
+  child: Text(
+    'WHAT-IF SIMULATOR',
+    style: TextStyle(
+      color: gold,
+      fontSize: 12,
+      fontWeight: FontWeight.w900,
+      letterSpacing: 0.8,
+    ),
+  ),
+),
+
+const SizedBox(height: 6),
+
+const Align(
+  alignment: Alignment.centerLeft,
+  child: Text(
+    'See how a different rate or tenure could affect your monthly instalment.',
+    style: TextStyle(
+      color: Colors.white70,
+      fontSize: 12,
+      height: 1.4,
+    ),
+  ),
+),
+
+const SizedBox(height: 18),
+
+Align(
+  alignment: Alignment.centerLeft,
+  child: Text(
+    'Interest Rate: ${whatIfInterestRate.toStringAsFixed(1)}%',
+    style: const TextStyle(
+      color: Colors.white,
+      fontSize: 13,
+      fontWeight: FontWeight.w800,
+    ),
+  ),
+),
+
+Slider(
+  value: whatIfInterestRate,
+  min: 2.0,
+  max: 8.0,
+  divisions: 60,
+  activeColor: gold,
+  inactiveColor: Colors.white24,
+  onChanged: (value) {
+    setState(() {
+      whatIfInterestRate = value;
+    });
+  },
+),
+
+const SizedBox(height: 8),
+
+DropdownButtonFormField<int>(
+  initialValue: whatIfTenure,
+  dropdownColor: navy,
+  style: const TextStyle(
+    color: Colors.white,
+    fontWeight: FontWeight.w700,
+  ),
+  decoration: InputDecoration(
+    labelText: 'What-If Loan Tenure',
+    labelStyle: const TextStyle(
+      color: Colors.white70,
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(
+        color: Colors.white24,
+      ),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(
+        color: gold,
+      ),
+    ),
+  ),
+  items: const [
+    DropdownMenuItem(
+      value: 10,
+      child: Text('10 years'),
+    ),
+    DropdownMenuItem(
+      value: 15,
+      child: Text('15 years'),
+    ),
+    DropdownMenuItem(
+      value: 20,
+      child: Text('20 years'),
+    ),
+    DropdownMenuItem(
+      value: 25,
+      child: Text('25 years'),
+    ),
+    DropdownMenuItem(
+      value: 30,
+      child: Text('30 years'),
+    ),
+    DropdownMenuItem(
+      value: 35,
+      child: Text('35 years'),
+    ),
+  ],
+  onChanged: (value) {
+    if (value != null) {
+      setState(() {
+        whatIfTenure = value;
+      });
+    }
+  },
+),
+
+const SizedBox(height: 18),
+
+Builder(
+  builder: (context) {
+    final whatIfMonthly =
+        _calculateMonthlyPayment(
+      principal: loanAmount,
+      annualInterest: whatIfInterestRate,
+      years: whatIfTenure,
+    );
+
+    final whatIfTotalPayment =
+        whatIfMonthly * whatIfTenure * 12;
+
+    final whatIfTotalInterest =
+        whatIfTotalPayment - loanAmount;
+
+    final monthlyDifference =
+        whatIfMonthly - monthlyPayment;
+
+    return Column(
+      children: [
+        _ResultRow(
+          label: 'What-If Monthly Instalment',
+          value: money(whatIfMonthly),
+        ),
+        _ResultRow(
+          label: 'What-If Total Interest',
+          value: money(whatIfTotalInterest),
+        ),
+        _ResultRow(
+          label: 'Monthly Difference',
+          value:
+              '${monthlyDifference >= 0 ? '+' : '-'}${money(monthlyDifference.abs())}',
+        ),
+      ],
+    );
+    },
+),
+
+const SizedBox(height: 14),
+
+Container(
+  width: double.infinity,
+  padding: const EdgeInsets.all(14),
+  decoration: BoxDecoration(
+    color: gold.withValues(alpha: 0.10),
+    borderRadius: BorderRadius.circular(14),
+    border: Border.all(
+      color: const Color(0x55D4AF37),
+    ),
+  ),
+  child: Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Icon(
+        Icons.lightbulb_outline_rounded,
+        color: gold,
+        size: 22,
+      ),
+
+      const SizedBox(width: 10),
+
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'SMART LOAN INSIGHT',
+              style: TextStyle(
+                color: gold,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.8,
               ),
             ),
 
-                        const SizedBox(height: 18),
+            const SizedBox(height: 6),
 
+            Text(
+              _loanInsight(),
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                height: 1.4,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  ),
+),
+
+],
+),
+),
+
+const SizedBox(height: 18),
             SizedBox(
               height: 56,
               child: FilledButton.icon(
@@ -7524,7 +8840,10 @@ class _LoanCalculatorScreenState
                 ),
                 onPressed: () {
                   final propertyPrice =
-                      double.tryParse(propertyPriceController.text) ?? 0;
+                      double.tryParse(
+                        propertyPriceController.text.replaceAll(',', ''),
+                      ) ??
+                      0;
 
                   Navigator.push(
                     context,
@@ -7539,13 +8858,37 @@ class _LoanCalculatorScreenState
                 icon: const Icon(Icons.home_work_outlined),
                 label: const Text(
                   'FIND A PROPERTY WITH THIS BUDGET',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
             ),
+            const SizedBox(height: 18),
 
+            SizedBox(
+              height: 54,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: gold,
+                  foregroundColor: navy,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const InvestmentCalculatorScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.trending_up_rounded),
+                label: const Text(
+                  'CONTINUE TO INVESTMENT CALCULATOR',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ),
             const SizedBox(height: 18),
 
             const Text(
@@ -7566,7 +8909,14 @@ class _LoanCalculatorScreenState
 }
 
 class InvestmentCalculatorScreen extends StatefulWidget {
-  const InvestmentCalculatorScreen({super.key});
+  final double? initialPropertyPrice;
+  final String? propertyTitle;
+
+  const InvestmentCalculatorScreen({
+    super.key,
+    this.initialPropertyPrice,
+    this.propertyTitle,
+  });
 
   @override
   State<InvestmentCalculatorScreen> createState() =>
@@ -7574,7 +8924,7 @@ class InvestmentCalculatorScreen extends StatefulWidget {
 }
 
 class _InvestmentCalculatorScreenState
-   extends State<InvestmentCalculatorScreen> {
+    extends State<InvestmentCalculatorScreen> {
   static const navy = Color(0xFF0B1F33);
   static const gold = Color(0xFFD4AF37);
 
@@ -7584,60 +8934,137 @@ class _InvestmentCalculatorScreenState
   final maintenanceController = TextEditingController();
   final otherCostController = TextEditingController();
 
+@override
+void initState() {
+  super.initState();
+
+  final initialPrice = widget.initialPropertyPrice;
+
+  if (initialPrice != null && initialPrice > 0) {
+    final raw = initialPrice.toStringAsFixed(0);
+
+    propertyPriceController.text = raw.replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (match) => ',',
+    );
+  }
+}
+
   double grossRentalYield = 0;
   double monthlyCashFlow = 0;
   double annualCashFlow = 0;
   double simpleROI = 0;
 
+  double netRentalYield = 0;
+double breakEvenYears = 0;
+double investmentScore = 0;
+
   bool calculated = false;
 
   void calculateInvestment() {
-    final propertyPrice = double.tryParse(
-          propertyPriceController.text.replaceAll(',', ''),
-        ) ??
-        0;
+    final propertyPrice =
+        double.tryParse(propertyPriceController.text.replaceAll(',', '')) ?? 0;
 
-    final monthlyRental = double.tryParse(
-          monthlyRentalController.text.replaceAll(',', ''),
-        ) ??
-        0;
+    final monthlyRental =
+        double.tryParse(monthlyRentalController.text.replaceAll(',', '')) ?? 0;
 
-    final monthlyLoan = double.tryParse(
-          monthlyLoanController.text.replaceAll(',', ''),
-        ) ??
-        0;
+    final monthlyLoan =
+        double.tryParse(monthlyLoanController.text.replaceAll(',', '')) ?? 0;
 
-    final maintenance = double.tryParse(
-          maintenanceController.text.replaceAll(',', ''),
-        ) ??
-        0;
+    final maintenance =
+        double.tryParse(maintenanceController.text.replaceAll(',', '')) ?? 0;
 
-    final otherCost = double.tryParse(
-          otherCostController.text.replaceAll(',', ''),
-        ) ??
-        0;
+    final otherCost =
+        double.tryParse(otherCostController.text.replaceAll(',', '')) ?? 0;
 
     if (propertyPrice <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter the property price.'),
-        ),
+        const SnackBar(content: Text('Please enter the property price.')),
       );
       return;
     }
 
     final annualRental = monthlyRental * 12;
 
-    final cashFlow =
-        monthlyRental - monthlyLoan - maintenance - otherCost;
+    final cashFlow = monthlyRental - monthlyLoan - maintenance - otherCost;
 
     final annualCF = cashFlow * 12;
 
     final estimatedInitialCash = propertyPrice * 0.10;
 
+    final annualOperatingCost =
+    (maintenance + otherCost) * 12;
+
+final netAnnualRental =
+    annualRental - annualOperatingCost;
+
+final calculatedNetYield =
+    propertyPrice > 0
+        ? (netAnnualRental / propertyPrice) * 100
+        : 0.0;
+
+final calculatedBreakEvenYears =
+    annualCF > 0 && estimatedInitialCash > 0
+        ? estimatedInitialCash / annualCF
+        : 0.0;
+
+        double calculatedScore = 0;
+
+// NET RENTAL YIELD — max 40 points
+if (calculatedNetYield >= 6) {
+  calculatedScore += 40;
+} else if (calculatedNetYield >= 5) {
+  calculatedScore += 32;
+} else if (calculatedNetYield >= 4) {
+  calculatedScore += 24;
+} else if (calculatedNetYield >= 3) {
+  calculatedScore += 16;
+} else if (calculatedNetYield > 0) {
+  calculatedScore += 8;
+}
+
+// MONTHLY CASH FLOW — max 25 points
+if (cashFlow >= 500) {
+  calculatedScore += 25;
+} else if (cashFlow > 0) {
+  calculatedScore += 18;
+} else if (cashFlow == 0) {
+  calculatedScore += 10;
+}
+
+// SIMPLE ROI — max 20 points
+final calculatedROI =
+    estimatedInitialCash > 0
+        ? (annualCF / estimatedInitialCash) * 100
+        : 0.0;
+
+if (calculatedROI >= 10) {
+  calculatedScore += 20;
+} else if (calculatedROI >= 7) {
+  calculatedScore += 15;
+} else if (calculatedROI >= 4) {
+  calculatedScore += 10;
+} else if (calculatedROI > 0) {
+  calculatedScore += 5;
+}
+
+// BREAK-EVEN — max 15 points
+if (calculatedBreakEvenYears > 0 &&
+    calculatedBreakEvenYears <= 10) {
+  calculatedScore += 15;
+} else if (calculatedBreakEvenYears <= 15 &&
+    calculatedBreakEvenYears > 0) {
+  calculatedScore += 10;
+} else if (calculatedBreakEvenYears <= 20 &&
+    calculatedBreakEvenYears > 0) {
+  calculatedScore += 5;
+}
+
+calculatedScore =
+    calculatedScore.clamp(0.0, 100.0);
+
     setState(() {
-      grossRentalYield =
-          (annualRental / propertyPrice) * 100;
+      grossRentalYield = (annualRental / propertyPrice) * 100;
 
       monthlyCashFlow = cashFlow;
       annualCashFlow = annualCF;
@@ -7646,15 +9073,42 @@ class _InvestmentCalculatorScreenState
           ? (annualCF / estimatedInitialCash) * 100
           : 0;
 
+          netRentalYield = calculatedNetYield;
+
+breakEvenYears = calculatedBreakEvenYears;
+
+investmentScore = calculatedScore;
+
       calculated = true;
     });
   }
+String _investmentInsight() {
+  if (monthlyCashFlow <= 0) {
+    return 'This investment currently shows weak cash flow. '
+        'Consider improving rental income, reducing financing cost, '
+        'or lowering monthly operating expenses.';
+  }
 
+  if (netRentalYield >= 6 &&
+      simpleROI >= 10 &&
+      breakEvenYears > 0 &&
+      breakEvenYears <= 10) {
+    return 'This investment shows strong rental performance, positive cash flow, '
+        'healthy ROI and a relatively faster break-even period.';
+  }
+
+  if (netRentalYield >= 4 &&
+      monthlyCashFlow > 0 &&
+      simpleROI > 0) {
+    return 'This investment shows positive cash flow with a moderate rental yield. '
+        'Review financing cost and operating expenses to improve returns further.';
+  }
+
+  return 'This investment has positive elements, but the overall return profile '
+      'is still moderate. Compare rental yield, cash flow and break-even before deciding.';
+}
   String money(double value) {
-    return 'RM ${value.toStringAsFixed(0).replaceAllMapped(
-          RegExp(r'\B(?=(\d{3})+(?!\d))'),
-          (match) => ',',
-        )}';
+    return formatMoneyValue(value);
   }
 
   @override
@@ -7667,203 +9121,446 @@ class _InvestmentCalculatorScreenState
     super.dispose();
   }
 
-@override
-Widget build(BuildContext context) {
-  return Scaffold(
-    appBar: AppBar(
-      backgroundColor: navy,
-      foregroundColor: Colors.white,
-      title: const Text('Investment Calculator'),
-    ),
-    body: ListView(
-      padding: const EdgeInsets.all(22),
-      children: [
-        const Text(
-          'Investment Calculator',
-          style: TextStyle(
-            color: navy,
-            fontSize: 28,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: navy,
+        foregroundColor: Colors.white,
+        title: const Text('Investment Calculator'),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(22),
+        children: [
+          const CalculatorJourneyHeader(currentStep: 3),
 
-        const SizedBox(height: 8),
-
-        const Text(
-          'Estimate rental yield, cash flow and simple ROI.',
-          style: TextStyle(
-            fontSize: 15,
-            height: 1.4,
-          ),
-        ),
-
-        const SizedBox(height: 24),
-
-        _MoneyField(
-          controller: propertyPriceController,
-          label: 'Property Price',
-          hint: 'Example: 500,000',
-        ),
-
-        const SizedBox(height: 16),
-
-        _MoneyField(
-          controller: monthlyRentalController,
-          label: 'Monthly Rental',
-          hint: 'Example: 2,500',
-        ),
-
-        const SizedBox(height: 16),
-
-        _MoneyField(
-          controller: monthlyLoanController,
-          label: 'Monthly Loan Instalment',
-          hint: 'Example: 1,900',
-        ),
-
-        const SizedBox(height: 16),
-
-        _MoneyField(
-          controller: maintenanceController,
-          label: 'Monthly Maintenance',
-          hint: 'Example: 250',
-        ),
-
-        const SizedBox(height: 16),
-
-        _MoneyField(
-          controller: otherCostController,
-          label: 'Other Monthly Costs',
-          hint: 'Example: 100',
-        ),
-
-        const SizedBox(height: 24),
-
-        SizedBox(
-          height: 56,
-          child: FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: navy,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            onPressed: calculateInvestment,
-            child: const Text(
-              'CALCULATE INVESTMENT',
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ),
-
-        if (calculated) ...[
-          const SizedBox(height: 28),
-
-          Container(
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
+          const SizedBox(height: 24),
+          const Text(
+            'Investment Calculator',
+            style: TextStyle(
               color: navy,
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Column(
-              children: [
-                const Text(
-                  'INVESTMENT SUMMARY',
-                  style: TextStyle(
-                    color: gold,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1,
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                _ResultRow(
-                  label: 'Gross Rental Yield',
-                  value: '${grossRentalYield.toStringAsFixed(2)}%',
-                ),
-
-                _ResultRow(
-                  label: 'Monthly Cash Flow',
-                  value: money(monthlyCashFlow),
-                ),
-
-                _ResultRow(
-                  label: 'Annual Cash Flow',
-                  value: money(annualCashFlow),
-                ),
-
-                _ResultRow(
-                  label: 'Simple ROI',
-                  value: '${simpleROI.toStringAsFixed(2)}%',
-                ),
-              ],
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
             ),
           ),
 
-          const SizedBox(height: 18),
+          const SizedBox(height: 8),
+
+          const Text(
+            'Estimate rental yield, cash flow and simple ROI.',
+            style: TextStyle(fontSize: 15, height: 1.4),
+          ),
+
+          const SizedBox(height: 24),
+
+          _MoneyField(
+            controller: propertyPriceController,
+            label: 'Property Price',
+            hint: 'Example: 500,000',
+          ),
+
+          const SizedBox(height: 16),
+
+          _MoneyField(
+            controller: monthlyRentalController,
+            label: 'Monthly Rental',
+            hint: 'Example: 2,500',
+          ),
+
+          const SizedBox(height: 16),
+
+          _MoneyField(
+            controller: monthlyLoanController,
+            label: 'Monthly Loan Instalment',
+            hint: 'Example: 1,900',
+          ),
+
+          const SizedBox(height: 16),
+
+          _MoneyField(
+            controller: maintenanceController,
+            label: 'Monthly Maintenance',
+            hint: 'Example: 250',
+          ),
+
+          const SizedBox(height: 16),
+
+          _MoneyField(
+            controller: otherCostController,
+            label: 'Other Monthly Costs',
+            hint: 'Example: 100',
+          ),
+
+          const SizedBox(height: 24),
 
           SizedBox(
             height: 56,
-            child: FilledButton.icon(
+            child: FilledButton(
               style: FilledButton.styleFrom(
-                backgroundColor: gold,
-                foregroundColor: navy,
+                backgroundColor: navy,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
               ),
-              onPressed: () {
-                final propertyPrice = double.tryParse(
-                      propertyPriceController.text.replaceAll(',', ''),
-                    ) ??
-                    0;
-
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PropertyEnquiryScreen(
-                      initialPurpose: 'Buy',
-                      initialBudget: propertyPrice,
-                    ),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.trending_up_outlined),
-              label: const Text(
-                'FIND AN INVESTMENT PROPERTY',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                ),
+              onPressed: calculateInvestment,
+              child: const Text(
+                'CALCULATE INVESTMENT',
+                style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
           ),
 
-          const SizedBox(height: 18),
+          if (calculated) ...[
+            const SizedBox(height: 28),
 
-          const Text(
-            'Important: This calculator provides a simple estimate only. '
-            'Actual investment returns may vary due to vacancy, repairs, '
-            'taxes, insurance, legal costs, financing changes and other expenses.',
-            style: TextStyle(
-              fontSize: 12,
-              height: 1.5,
-              color: Colors.black54,
-            ),
-          ),
-        ],
-      ],
+            Container(
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                color: navy,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Column(
+                children: [
+                  const Text(
+                    'INVESTMENT SUMMARY',
+                    style: TextStyle(
+                      color: gold,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1,
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  _ResultRow(
+                    label: 'Gross Rental Yield',
+                    value: '${grossRentalYield.toStringAsFixed(2)}%',
+                  ),
+
+                  _ResultRow(
+  label: 'Net Rental Yield',
+  value: '${netRentalYield.toStringAsFixed(2)}%',
+),
+
+                  _ResultRow(
+                    label: 'Monthly Cash Flow',
+                    value: money(monthlyCashFlow),
+                  ),
+
+                  _ResultRow(
+                    label: 'Annual Cash Flow',
+                    value: money(annualCashFlow),
+                  ),
+
+                  _ResultRow(
+                    label: 'Simple ROI',
+                    value: '${simpleROI.toStringAsFixed(2)}%',
+                  ),
+
+                  _ResultRow(
+  label: 'Break-even',
+  value: breakEvenYears > 0
+      ? '${breakEvenYears.toStringAsFixed(1)} years'
+      : 'N/A',
+),
+const SizedBox(height: 18),
+
+const Align(
+  alignment: Alignment.centerLeft,
+  child: Text(
+    'INVESTMENT HEALTH',
+    style: TextStyle(
+      color: gold,
+      fontSize: 12,
+      fontWeight: FontWeight.w900,
+      letterSpacing: 0.8,
     ),
-  );
-}
-     
+  ),
+),
 
+const SizedBox(height: 10),
+
+ClipRRect(
+  borderRadius: BorderRadius.circular(20),
+  child: LinearProgressIndicator(
+    minHeight: 12,
+    value: (investmentScore / 100).clamp(0.0, 1.0),
+    backgroundColor: Colors.white12,
+    valueColor: AlwaysStoppedAnimation<Color>(
+      investmentScore >= 80
+          ? const Color(0xFF22C55E)
+          : investmentScore >= 60
+              ? gold
+              : investmentScore >= 40
+                  ? const Color(0xFFF59E0B)
+                  : const Color(0xFFE94343),
+    ),
+  ),
+),
+
+const SizedBox(height: 10),
+
+Row(
+  children: [
+    Expanded(
+      child: Text(
+        investmentScore >= 80
+            ? 'Excellent'
+            : investmentScore >= 60
+                ? 'Healthy'
+                : investmentScore >= 40
+                    ? 'Watch'
+                    : 'Weak',
+        style: TextStyle(
+          color: investmentScore >= 80
+              ? const Color(0xFF22C55E)
+              : investmentScore >= 60
+                  ? gold
+                  : investmentScore >= 40
+                      ? const Color(0xFFF59E0B)
+                      : const Color(0xFFE94343),
+          fontSize: 13,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    ),
+    Text(
+      '${investmentScore.toStringAsFixed(0)}/100',
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 13,
+        fontWeight: FontWeight.w900,
+      ),
+    ),
+  ],
+),
+const SizedBox(height: 16),
+
+Container(
+  width: double.infinity,
+  padding: const EdgeInsets.all(14),
+  decoration: BoxDecoration(
+    color: Colors.white.withValues(alpha: 0.04),
+    borderRadius: BorderRadius.circular(14),
+    border: Border.all(
+      color: Colors.white12,
+    ),
+  ),
+  child: const Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        'HOW THIS IS CALCULATED',
+        style: TextStyle(
+          color: gold,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.8,
+        ),
+      ),
+
+      SizedBox(height: 10),
+
+      Text(
+        'Gross Yield = Annual Rental ÷ Property Price × 100',
+        style: TextStyle(
+          color: Colors.white70,
+          fontSize: 12,
+          height: 1.5,
+        ),
+      ),
+
+      Text(
+        'Net Yield = (Annual Rental − Operating Costs) ÷ Property Price × 100',
+        style: TextStyle(
+          color: Colors.white70,
+          fontSize: 12,
+          height: 1.5,
+        ),
+      ),
+
+      Text(
+        'Monthly Cash Flow = Rental − Loan − Maintenance − Other Costs',
+        style: TextStyle(
+          color: Colors.white70,
+          fontSize: 12,
+          height: 1.5,
+        ),
+      ),
+
+      Text(
+        'ROI = Annual Cash Flow ÷ Estimated Initial Cash × 100',
+        style: TextStyle(
+          color: Colors.white70,
+          fontSize: 12,
+          height: 1.5,
+        ),
+      ),
+
+      Text(
+        'Break-even = Estimated Initial Cash ÷ Annual Cash Flow',
+        style: TextStyle(
+          color: Colors.white70,
+          fontSize: 12,
+          height: 1.5,
+        ),
+      ),
+
+      SizedBox(height: 8),
+
+      Text(
+        'Investment Score is an internal MK KHAIRUL Property Tools estimate based on Net Yield, Cash Flow, ROI and Break-even. It is not a bank or official investment rating.',
+        style: TextStyle(
+          color: Colors.white54,
+          fontSize: 11,
+          height: 1.5,
+        ),
+      ),
+    ],
+  ),
+),
+const SizedBox(height: 14),
+
+Container(
+  width: double.infinity,
+  padding: const EdgeInsets.all(14),
+  decoration: BoxDecoration(
+    color: gold.withValues(alpha: 0.10),
+    borderRadius: BorderRadius.circular(14),
+    border: Border.all(
+      color: const Color(0x55D4AF37),
+    ),
+  ),
+  child: Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Icon(
+        Icons.lightbulb_outline_rounded,
+        color: gold,
+        size: 22,
+      ),
+
+      const SizedBox(width: 10),
+
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'SMART INVESTMENT INSIGHT',
+              style: TextStyle(
+                color: gold,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.8,
+              ),
+            ),
+
+            const SizedBox(height: 6),
+
+            Text(
+              _investmentInsight(),
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                height: 1.4,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  ),
+),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            SizedBox(
+              height: 56,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: gold,
+                  foregroundColor: navy,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                onPressed: () {
+                  final propertyPrice =
+                      double.tryParse(
+                        propertyPriceController.text.replaceAll(',', ''),
+                      ) ??
+                      0;
+
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PropertyEnquiryScreen(
+                        initialPurpose: 'Buy',
+                        initialBudget: propertyPrice,
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.trending_up_outlined),
+                label: const Text(
+                  'FIND AN INVESTMENT PROPERTY',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            SizedBox(
+              height: 52,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: navy,
+                  side: const BorderSide(color: navy, width: 1.4),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const LoanEligibilityScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.restart_alt_rounded),
+                label: const Text(
+                  'START OVER — BUYING POWER',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+
+            const Text(
+              'Important: This calculator provides a simple estimate only. '
+              'Actual investment returns may vary due to vacancy, repairs, '
+              'taxes, insurance, legal costs, financing changes and other expenses.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.5,
+                color: Colors.black54,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
+}
 
-  class PropertyGuideScreen extends StatelessWidget {
+class PropertyGuideScreen extends StatelessWidget {
   const PropertyGuideScreen({super.key});
 
   static const navy = Color(0xFF0B1F33);
@@ -7893,71 +9590,56 @@ Widget build(BuildContext context) {
 
           Text(
             'Simple property answers without the jargon.',
-            style: TextStyle(
-              fontSize: 15,
-              height: 1.4,
-            ),
+            style: TextStyle(fontSize: 15, height: 1.4),
           ),
 
           SizedBox(height: 24),
 
           _GuideCard(
             title: 'What is DSR?',
-            answer:
-                'DSR means Debt Service Ratio. Banks use it to compare your monthly debt commitments against your income.',
+            answer: 'DSR means Debt Service Ratio. Banks use it to compare your monthly debt commitments against your income.',
           ),
 
           _GuideCard(
             title: 'What are CCRIS & CTOS?',
-            answer:
-                'They help lenders assess your credit profile and repayment history. A clean profile may improve your financing chances.',
+            answer: 'They help lenders assess your credit profile and repayment history. A clean profile may improve your financing chances.',
           ),
 
           _GuideCard(
             title: 'Freehold vs Leasehold',
-            answer:
-                'Freehold ownership has no fixed lease expiry. Leasehold properties are held for a fixed lease period and may require consent for certain transactions.',
+            answer: 'Freehold ownership has no fixed lease expiry. Leasehold properties are held for a fixed lease period and may require consent for certain transactions.',
           ),
 
           _GuideCard(
             title: 'What is a Booking Fee?',
-            answer:
-                'A booking fee is an initial payment to reserve a property. Always verify the agent, agency and payment instructions before transferring money.',
+            answer: 'A booking fee is an initial payment to reserve a property. Always verify the agent, agency and payment instructions before transferring money.',
           ),
 
           _GuideCard(
             title: 'What is MOT?',
-            answer:
-                'MOT means Memorandum of Transfer. It is the legal instrument used to transfer property ownership to the buyer.',
+            answer: 'MOT means Memorandum of Transfer. It is the legal instrument used to transfer property ownership to the buyer.',
           ),
 
           _GuideCard(
             title: 'What is RPGT?',
-            answer:
-                'RPGT means Real Property Gains Tax. It may apply when a property is sold at a gain, depending on current rules and circumstances.',
+            answer: 'RPGT means Real Property Gains Tax. It may apply when a property is sold at a gain, depending on current rules and circumstances.',
           ),
 
           _GuideCard(
             title: 'What is Strata?',
-            answer:
-                'Strata ownership usually applies to properties such as condominiums and apartments, where owners share common facilities and pay maintenance charges.',
+            answer: 'Strata ownership usually applies to properties such as condominiums and apartments, where owners share common facilities and pay maintenance charges.',
           ),
 
           _GuideCard(
             title: 'Why can a housing loan be rejected?',
-            answer:
-                'Common factors include high commitments, weak credit history, insufficient income, unstable income profile, property issues or bank credit policy.',
+            answer: 'Common factors include high commitments, weak credit history, insufficient income, unstable income profile, property issues or bank credit policy.',
           ),
 
           SizedBox(height: 10),
 
           Text(
             'Important: This guide is for general education only. Property, financing, legal and tax requirements may vary.',
-            style: TextStyle(
-              fontSize: 12,
-              height: 1.5,
-              color: Colors.black54,
-            ),
+            style: TextStyle(fontSize: 12, height: 1.5, color: Colors.black54),
           ),
         ],
       ),
@@ -7969,10 +9651,7 @@ class _GuideCard extends StatelessWidget {
   final String title;
   final String answer;
 
-  const _GuideCard({
-    required this.title,
-    required this.answer,
-  });
+  const _GuideCard({required this.title, required this.answer});
 
   static const navy = Color(0xFF0B1F33);
   static const gold = Color(0xFFD4AF37);
@@ -7999,21 +9678,11 @@ class _GuideCard extends StatelessWidget {
           collapsedIconColor: gold,
           title: Text(
             title,
-            style: const TextStyle(
-              color: navy,
-              fontWeight: FontWeight.w700,
-            ),
+            style: const TextStyle(color: navy, fontWeight: FontWeight.w700),
           ),
-          childrenPadding:
-              const EdgeInsets.fromLTRB(18, 0, 18, 18),
+          childrenPadding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
           children: [
-            Text(
-              answer,
-              style: const TextStyle(
-                fontSize: 14,
-                height: 1.5,
-              ),
-            ),
+            Text(answer, style: const TextStyle(fontSize: 14, height: 1.5)),
           ],
         ),
       ),
