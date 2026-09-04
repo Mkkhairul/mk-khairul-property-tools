@@ -5651,7 +5651,7 @@ Boleh bantu saya?
         'https://github.com/Mkkhairul/mk-khairul-property-tools/releases/download/v1.0.0-beta/MK-Khairul-property-Tools.apk';
 
     final propertyLink =
-        'https://mk-khairul-property-tools.pages.dev/property/${Uri.encodeComponent(id)}';
+        'https://mkkhairul.pages.dev/property/${Uri.encodeComponent(id)}';
 
     final message =
         '''
