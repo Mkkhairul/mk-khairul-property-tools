@@ -1355,13 +1355,18 @@ class _PropertyListingHeroCardState extends State<PropertyListingHeroCard>
                                 ),
                                 child: Transform.scale(
                                   scale: 1.18,
-                                  child: Image.network(
-                                    imageUrl,
-                                    fit: BoxFit.cover,
-                                    alignment: Alignment.center,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return const ColoredBox(color: deepNavy);
-                                    },
+                                  child: ExcludeSemantics(
+                                    child: Image.network(
+                                      imageUrl,
+                                      fit: BoxFit.cover,
+                                      alignment: Alignment.center,
+                                      errorBuilder:
+                                          (context, error, stackTrace) {
+                                            return const ColoredBox(
+                                              color: deepNavy,
+                                            );
+                                          },
+                                    ),
                                   ),
                                 ),
                               ),
@@ -1417,6 +1422,7 @@ class _PropertyListingHeroCardState extends State<PropertyListingHeroCard>
                               ),
                               child: Image.network(
                                 imageUrl,
+                                semanticLabel: '${_title(item)} property image',
                                 fit: BoxFit.contain,
                                 alignment: Alignment.center,
                                 filterQuality: FilterQuality.high,
@@ -4617,6 +4623,9 @@ class _PropertyListingScreenState extends State<PropertyListingScreen> {
                 aspectRatio: isDesktop ? 16 / 10 : 4 / 3,
                 child: PropertyImageWithWatermark(
                   imageUrl: imageUrl,
+                  semanticLabel: title.isEmpty
+                      ? 'Property image'
+                      : '$title property image',
                   watermarkFontSize: isDesktop ? 12 : 8,
                 ),
               ),
@@ -5270,12 +5279,14 @@ class PropertyImageWithWatermark extends StatelessWidget {
   final String imageUrl;
   final BoxFit fit;
   final double watermarkFontSize;
+  final String? semanticLabel;
 
   const PropertyImageWithWatermark({
     super.key,
     required this.imageUrl,
     this.fit = BoxFit.cover,
     this.watermarkFontSize = 13,
+    this.semanticLabel,
   });
 
   static const gold = Color(0xFFD4AF37);
@@ -5297,13 +5308,15 @@ class PropertyImageWithWatermark extends StatelessWidget {
                       imageFilter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
                       child: Transform.scale(
                         scale: 1.18,
-                        child: Image.network(
-                          imageUrl.trim(),
-                          fit: BoxFit.cover,
-                          alignment: Alignment.center,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const ColoredBox(color: deepNavy);
-                          },
+                        child: ExcludeSemantics(
+                          child: Image.network(
+                            imageUrl.trim(),
+                            fit: BoxFit.cover,
+                            alignment: Alignment.center,
+                            errorBuilder: (context, error, stackTrace) {
+                              return const ColoredBox(color: deepNavy);
+                            },
+                          ),
                         ),
                       ),
                     ),
@@ -5317,6 +5330,7 @@ class PropertyImageWithWatermark extends StatelessWidget {
                     padding: const EdgeInsets.all(2),
                     child: Image.network(
                       imageUrl.trim(),
+                      semanticLabel: semanticLabel,
                       fit: BoxFit.contain,
                       alignment: Alignment.center,
                       filterQuality: FilterQuality.high,
@@ -5816,6 +5830,9 @@ final canCheckAffordability =
                                 Positioned.fill(
                                   child: PropertyImageWithWatermark(
                                     imageUrl: imageList[index],
+                                    semanticLabel: title.isEmpty
+                                        ? 'Property image ${index + 1} of ${imageList.length}'
+                                        : '$title property image ${index + 1} of ${imageList.length}',
                                     fit: BoxFit.contain,
                                     watermarkFontSize: 12,
                                   ),
@@ -5890,6 +5907,9 @@ final canCheckAffordability =
                                       Positioned.fill(
                                         child: PropertyImageWithWatermark(
                                           imageUrl: imageList[index],
+                                          semanticLabel: title.isEmpty
+                                              ? 'Property image ${index + 1} of ${imageList.length}'
+                                              : '$title property image ${index + 1} of ${imageList.length}',
 
                                           // WEB:
                                           // tunjuk gambar penuh
