@@ -21,6 +21,7 @@ function cleanText(value) {
 function getImage(property) {
   const possibleFields = [
     'SEO Image',
+    'Image1',
     'Image',
     'Image 1',
     'Image URL',
