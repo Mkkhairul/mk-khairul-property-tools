@@ -341,6 +341,7 @@ class _SplashScreenState extends State<SplashScreen> {
       body: Center(
         child: Image.asset(
           'assets/splash/splash_logo.png',
+          semanticLabel: 'MK KHAIRUL Property Tools',
           width: 300,
           fit: BoxFit.contain,
         ),
@@ -416,9 +417,11 @@ Boleh bantu saya?
                             SizedBox(
                               width: 90,
                               height: 90,
-                              child: Image.asset(
-                                'assets/splash/splash_logo.png',
-                                fit: BoxFit.contain,
+                              child: ExcludeSemantics(
+                                child: Image.asset(
+                                  'assets/splash/splash_logo.png',
+                                  fit: BoxFit.contain,
+                                ),
                               ),
                             ),
 
@@ -521,9 +524,11 @@ Boleh bantu saya?
                             SizedBox(
                               width: 68,
                               height: 68,
-                              child: Image.asset(
-                                'assets/splash/splash_logo.png',
-                                fit: BoxFit.contain,
+                              child: ExcludeSemantics(
+                                child: Image.asset(
+                                  'assets/splash/splash_logo.png',
+                                  fit: BoxFit.contain,
+                                ),
                               ),
                             ),
 
@@ -607,9 +612,11 @@ Boleh bantu saya?
                           SizedBox(
                             width: 100,
                             height: 100,
-                            child: Image.asset(
-                              'assets/splash/splash_logo.png',
-                              fit: BoxFit.contain,
+                            child: ExcludeSemantics(
+                              child: Image.asset(
+                                'assets/splash/splash_logo.png',
+                                fit: BoxFit.contain,
+                              ),
                             ),
                           ),
 
