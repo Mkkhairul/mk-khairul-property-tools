@@ -130,33 +130,46 @@ export async function onRequestGet(context) {
 
     const price = getPrice(property);
 
+
     const schema = {
-      '@context': 'https://schema.org',
+  '@context': 'https://schema.org',
+
+  '@graph': [
+    {
       '@type': 'WebPage',
       '@id': `${canonical}#webpage`,
       url: canonical,
       name: title,
       description: metaDescription,
       inLanguage: 'ms-MY',
+
+      breadcrumb: {
+        '@id': `${canonical}#breadcrumb`,
+      },
+
       isPartOf: {
         '@type': 'WebSite',
         '@id': `${origin}/#website`,
         url: `${origin}/`,
         name: 'MK Khairul Property Tools',
       },
+
       primaryImageOfPage: {
         '@type': 'ImageObject',
         url: image,
       },
+
       mainEntity: {
         '@type': 'Offer',
         url: canonical,
         name: propertyTitle,
         description: metaDescription,
+
         itemOffered: {
           '@type': 'Place',
           name: propertyTitle,
           description: propertyType,
+
           ...(location
             ? {
                 address: {
@@ -168,6 +181,7 @@ export async function onRequestGet(context) {
               }
             : {}),
         },
+
         ...(price
           ? {
               priceCurrency: 'MYR',
@@ -175,7 +189,36 @@ export async function onRequestGet(context) {
             }
           : {}),
       },
-    };
+    },
+
+    {
+      '@type': 'BreadcrumbList',
+      '@id': `${canonical}#breadcrumb`,
+
+      itemListElement: [
+        {
+          '@type': 'ListItem',
+          position: 1,
+          name: 'Home',
+          item: `${origin}/`,
+        },
+        {
+          '@type': 'ListItem',
+          position: 2,
+          name: 'Properties',
+          item: `${origin}/properties`,
+        },
+        {
+          '@type': 'ListItem',
+          position: 3,
+          name: propertyTitle,
+          item: canonical,
+        },
+      ],
+    },
+  ],
+};
+
 
     const assetUrl = new URL('/', requestUrl);
     const assetResponse = await context.env.ASSETS.fetch(assetUrl);
