@@ -5650,8 +5650,11 @@ Boleh bantu saya?
     const appDownloadLink =
         'https://github.com/Mkkhairul/mk-khairul-property-tools/releases/download/v1.0.0-beta/MK-Khairul-property-Tools.apk';
 
-    final propertyLink =
-        'https://mkkhairul.pages.dev/property/${Uri.encodeComponent(id)}';
+    final seoSlug = _field('SEO Slug');
+
+    final propertyLink = seoSlug.isNotEmpty
+        ? 'https://mkkhairul.pages.dev/property/${Uri.encodeComponent(seoSlug)}'
+        : 'https://mkkhairul.pages.dev/property/${Uri.encodeComponent(id)}';
 
     final message =
         '''
