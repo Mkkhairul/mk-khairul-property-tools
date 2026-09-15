@@ -340,7 +340,7 @@ class _SplashScreenState extends State<SplashScreen> {
       backgroundColor: navy,
       body: Center(
         child: Image.asset(
-          'assets/splash/splash_logo.png',
+          'assets/splash/splash_logo.webp',
           semanticLabel: 'MK KHAIRUL Property Tools',
           width: 300,
           fit: BoxFit.contain,
@@ -419,7 +419,7 @@ Boleh bantu saya?
                               height: 90,
                               child: ExcludeSemantics(
                                 child: Image.asset(
-                                  'assets/splash/splash_logo.png',
+                                  'assets/splash/splash_logo.webp',
                                   fit: BoxFit.contain,
                                 ),
                               ),
@@ -526,7 +526,7 @@ Boleh bantu saya?
                               height: 68,
                               child: ExcludeSemantics(
                                 child: Image.asset(
-                                  'assets/splash/splash_logo.png',
+                                  'assets/splash/splash_logo.webp',
                                   fit: BoxFit.contain,
                                 ),
                               ),
@@ -614,7 +614,7 @@ Boleh bantu saya?
                             height: 100,
                             child: ExcludeSemantics(
                               child: Image.asset(
-                                'assets/splash/splash_logo.png',
+                                'assets/splash/splash_logo.webp',
                                 fit: BoxFit.contain,
                               ),
                             ),
