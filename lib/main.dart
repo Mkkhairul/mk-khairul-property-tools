@@ -1235,6 +1235,22 @@ class _PropertyListingHeroCardState extends State<PropertyListingHeroCard>
     return value.toString().trim();
   }
 
+  String _optimizedCloudinaryImage(String url) {
+    if (url.isEmpty) return url;
+
+    const cloudinaryMarker = '/image/upload/';
+
+    if (!url.contains('res.cloudinary.com') ||
+        !url.contains(cloudinaryMarker)) {
+      return url;
+    }
+
+    return url.replaceFirst(
+      cloudinaryMarker,
+      '${cloudinaryMarker}f_auto,q_auto,w_900/',
+    );
+  }
+
   String _firstField(Map<String, dynamic> item, List<String> keys) {
     for (final key in keys) {
       final value = _field(item, key);
@@ -1309,7 +1325,9 @@ class _PropertyListingHeroCardState extends State<PropertyListingHeroCard>
     required bool isDesktop,
     required bool isPhone,
   }) {
-    final imageUrl = _field(item, 'Image1');
+    final imageUrl = _optimizedCloudinaryImage(
+      _field(item, 'Image1'),
+    );
 
     final category = _category(item);
 
