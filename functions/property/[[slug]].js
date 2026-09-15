@@ -277,7 +277,14 @@ export async function onRequestGet(context) {
       )
       .replace(
         /<\/head>/i,
-        `<script type="application/ld+json">${safeJson(schema)}</script>\n</head>`,
+        `<script type="application/ld+json">${safeJson(schema)}</script>
+<noscript>
+  <img
+    src="${escapeHtml(image)}"
+    alt="${escapeHtml(`${propertyTitle}${location ? ` - ${location}` : ''} property image`)}"
+  >
+</noscript>
+</head>`,
       );
 
     return new Response(html, {
