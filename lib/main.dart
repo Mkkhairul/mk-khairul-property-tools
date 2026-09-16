@@ -1086,7 +1086,7 @@ class _PropertyListingHeroCardState extends State<PropertyListingHeroCard>
       duration: const Duration(milliseconds: 2400),
       lowerBound: 0.25,
       upperBound: 1.0,
-    )..repeat(reverse: true);
+    )..value = 0.60;
 
     _loadListings();
   }
