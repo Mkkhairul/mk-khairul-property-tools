@@ -150,18 +150,232 @@ class MKKhairulPropertyToolsApp extends StatelessWidget {
           surface: ivory,
         ),
       ),
-      home:
-          kIsWeb &&
-              Uri.base.pathSegments.length >= 2 &&
-              Uri.base.pathSegments.first == 'property'
-          ? DirectPropertyScreen(
-              propertyId: Uri.decodeComponent(
-                Uri.base.pathSegments.sublist(1).join('/'),
-              ),
-            )
-          : const HomeScreen(),
+      home: _initialScreen(),
     );
   }
+
+  Widget _initialScreen() {
+    if (!kIsWeb) return const HomeScreen();
+
+    final segments = Uri.base.pathSegments;
+    if (segments.isNotEmpty && segments.first == 'terms') {
+      return const LegalPage(isPrivacy: false);
+    }
+    if (segments.isNotEmpty && segments.first == 'privacy') {
+      return const LegalPage(isPrivacy: true);
+    }
+    if (segments.length >= 2 && segments.first == 'property') {
+      return DirectPropertyScreen(
+        propertyId: Uri.decodeComponent(segments.sublist(1).join('/')),
+      );
+    }
+    return const HomeScreen();
+  }
+}
+
+class LegalPage extends StatelessWidget {
+  final bool isPrivacy;
+
+  const LegalPage({super.key, required this.isPrivacy});
+
+  static const navy = Color(0xFF071A2C);
+  static const deepNavy = Color(0xFF03111E);
+  static const gold = Color(0xFFD4AF37);
+  static const softGold = Color(0xFFF2D675);
+
+  @override
+  Widget build(BuildContext context) {
+    final sections = isPrivacy ? _privacySections : _termsSections;
+    final title = isPrivacy ? 'Privacy Policy' : 'Terms of Service';
+
+    return Scaffold(
+      backgroundColor: deepNavy,
+      appBar: AppBar(
+        backgroundColor: navy,
+        foregroundColor: Colors.white,
+        title: Text(title),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 920),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(22, 28, 22, 48),
+              children: [
+                const Text(
+                  'MK KHAIRUL',
+                  style: TextStyle(
+                    color: softGold,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 34,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'MK Khairul Social Automation • Effective 22 September 2026',
+                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+                const SizedBox(height: 24),
+                ...sections.map(
+                  (section) => Container(
+                    margin: const EdgeInsets.only(bottom: 14),
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: navy,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0x44D4AF37)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          section.$1,
+                          style: const TextStyle(
+                            color: gold,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 9),
+                        Text(
+                          section.$2,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            height: 1.55,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 18,
+                  runSpacing: 10,
+                  children: [
+                    TextButton(
+                      onPressed: () => SystemNavigator.routeInformationUpdated(
+                        uri: Uri.parse('/terms'),
+                        replace: false,
+                      ),
+                      child: const Text('Terms of Service'),
+                    ),
+                    TextButton(
+                      onPressed: () => SystemNavigator.routeInformationUpdated(
+                        uri: Uri.parse('/privacy'),
+                        replace: false,
+                      ),
+                      child: const Text('Privacy Policy'),
+                    ),
+                    TextButton(
+                      onPressed: () => SystemNavigator.routeInformationUpdated(
+                        uri: Uri.parse('/'),
+                        replace: false,
+                      ),
+                      child: const Text('MK KHAIRUL Property Tools'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static const List<(String, String)> _termsSections = [
+    (
+      '1. About the Service',
+      'MK Khairul Social Automation is a productivity tool used to manage and publish property and educational social media content to TikTok. These Terms govern use of the service and its TikTok integration.',
+    ),
+    (
+      '2. TikTok Integration',
+      'The service may use TikTok Login Kit and the TikTok Content Posting API after the TikTok account holder authorizes access. Content is published only through permissions granted by the account holder and is subject to TikTok’s own terms, policies and platform rules.',
+    ),
+    (
+      '3. User Responsibilities',
+      'Users are responsible for the accuracy, legality and rights to the text, images, videos and other material they choose to publish. The service must not be used for unlawful, deceptive, infringing, abusive or unauthorized activity.',
+    ),
+    (
+      '4. Authorization and Access',
+      'TikTok access is permission-based. Users may revoke the application’s access through their TikTok account settings. Revoking access may prevent publishing and other TikTok-connected functions from working.',
+    ),
+    (
+      '5. Availability',
+      'We aim to keep the service available, but uninterrupted operation is not guaranteed. Features may be changed, suspended or unavailable because of maintenance, third-party platform changes, API limits or other technical conditions.',
+    ),
+    (
+      '6. Third-Party Services',
+      'The service may depend on third-party platforms and infrastructure, including TikTok and hosting or media-delivery providers. Their separate terms and privacy practices apply to their services.',
+    ),
+    (
+      '7. Limitation of Liability',
+      'To the extent permitted by applicable law, MK Khairul is not responsible for indirect or consequential loss arising from platform outages, API changes, rejected or delayed posts, account restrictions, or misuse of the service.',
+    ),
+    (
+      '8. Changes to These Terms',
+      'These Terms may be updated when the service, legal requirements or third-party platform requirements change. The effective date shown on this page identifies the current version.',
+    ),
+    (
+      '9. Contact',
+      'Questions about these Terms or the service may be directed to MK Khairul through the official contact channel available on MK KHAIRUL Property Tools at https://mkkhairul.pages.dev/.',
+    ),
+  ];
+
+  static const List<(String, String)> _privacySections = [
+    (
+      '1. Scope',
+      'This Privacy Policy explains how MK Khairul Social Automation handles information when a user connects a TikTok account and uses TikTok-related publishing features.',
+    ),
+    (
+      '2. Information We May Process',
+      'With user authorization, the service may process basic TikTok account information made available through approved scopes, authorization credentials such as access and refresh tokens, content selected for publishing, captions, publishing settings, and technical status or error information needed to operate the integration.',
+    ),
+    (
+      '3. How Information Is Used',
+      'Information is used only to authenticate the authorized TikTok account, perform requested publishing functions, maintain the integration, troubleshoot errors, protect the service and comply with applicable platform or legal requirements.',
+    ),
+    (
+      '4. TikTok Permissions',
+      'TikTok permissions are requested through TikTok’s authorization flow. The service does not receive the user’s TikTok password. Access is limited to permissions approved by the user and enabled for the application.',
+    ),
+    (
+      '5. Tokens and Security',
+      'Authorization credentials are treated as confidential and should be stored in restricted application configuration rather than public content. Reasonable technical measures are used to reduce unauthorized access, disclosure or misuse.',
+    ),
+    (
+      '6. Sharing of Information',
+      'Information is not sold to advertisers. Data may be transmitted to TikTok when necessary to perform an authorized TikTok function and may be processed by infrastructure or service providers only as needed to operate the service or meet legal obligations.',
+    ),
+    (
+      '7. Retention',
+      'Information is retained only for as long as reasonably necessary for the authorized integration, operational records, security, troubleshooting or legal requirements. Credentials that are no longer required should be deleted or allowed to expire.',
+    ),
+    (
+      '8. Revoking Access and Deletion Requests',
+      'Users may revoke the application’s TikTok access from their TikTok account settings. For questions or requests concerning data associated with this service, contact MK Khairul through the official contact channel at https://mkkhairul.pages.dev/. Requests will be handled subject to applicable legal and technical requirements.',
+    ),
+    (
+      '9. Third-Party Services',
+      'TikTok and other third-party services have their own privacy policies. This policy applies to MK Khairul Social Automation and does not replace the privacy terms of those third parties.',
+    ),
+    (
+      '10. Updates and Contact',
+      'This policy may be updated when the service, data practices or platform requirements change. Questions about this policy may be directed to MK Khairul through MK KHAIRUL Property Tools at https://mkkhairul.pages.dev/.',
+    ),
+  ];
 }
 
 class DirectPropertyScreen extends StatefulWidget {
