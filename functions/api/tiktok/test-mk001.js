@@ -31,7 +31,8 @@ export async function onRequestPost(context) {
         photo_images: [MK001_MEDIA]
       },
       post_mode: "DIRECT_POST",
-      media_type: "PHOTO"
+      media_type: "PHOTO",
+      is_aigc: true
     };
 
     const response = await fetch(PUBLISH_URL, {
