@@ -1,9 +1,9 @@
 const SOURCE_URL =
-  "https://res.cloudinary.com/wajj1zqw/image/upload/v1789649497/mkcontentposterms0027.png";
+  "https://res.cloudinary.com/wajj1zqw/image/upload/f_jpg,q_auto/v1789649497/mkcontentposterms0027.png";
 
 export async function onRequestGet() {
   const upstream = await fetch(SOURCE_URL, {
-    headers: { Accept: "image/png,image/*;q=0.9,*/*;q=0.8" }
+    headers: { Accept: "image/jpeg,image/*;q=0.9,*/*;q=0.8" }
   });
 
   if (!upstream.ok) {
@@ -14,7 +14,7 @@ export async function onRequestGet() {
   }
 
   const headers = new Headers();
-  headers.set("Content-Type", upstream.headers.get("Content-Type") || "image/png");
+  headers.set("Content-Type", "image/jpeg");
   const length = upstream.headers.get("Content-Length");
   if (length) headers.set("Content-Length", length);
   headers.set("Cache-Control", "public, max-age=86400");
@@ -34,7 +34,7 @@ export async function onRequestHead() {
   }
 
   const headers = new Headers();
-  headers.set("Content-Type", upstream.headers.get("Content-Type") || "image/png");
+  headers.set("Content-Type", "image/jpeg");
   const length = upstream.headers.get("Content-Length");
   if (length) headers.set("Content-Length", length);
   headers.set("Cache-Control", "public, max-age=86400");
