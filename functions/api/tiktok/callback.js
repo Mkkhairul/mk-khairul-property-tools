@@ -50,12 +50,23 @@
 
   const clientKey = context.env.TIKTOK_CLIENT_KEY;
   const clientSecret = context.env.TIKTOK_CLIENT_SECRET;
+  const tokenStore = context.env.TIKTOK_TOKENS;
 
   if (!clientKey || !clientSecret) {
     return safeResponse(
       {
         ok: false,
         error: "TikTok OAuth credentials are not configured."
+      },
+      500
+    );
+  }
+
+  if (!tokenStore) {
+    return safeResponse(
+      {
+        ok: false,
+        error: "TikTok token storage is not configured."
       },
       500
     );
@@ -102,25 +113,70 @@
             tokenData.error ||
             "Unknown TikTok OAuth error."
         },
-        502
+        502,
+        true
       );
     }
+
+    if (!tokenData.open_id) {
+      return safeResponse(
+        {
+          ok: false,
+          error: "TikTok open_id was not received."
+        },
+        502,
+        true
+      );
+    }
+
+    const now = Date.now();
+
+    const tokenRecord = {
+      open_id: tokenData.open_id,
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token,
+      scope: tokenData.scope || "",
+      token_type: tokenData.token_type || "Bearer",
+      expires_in: tokenData.expires_in || null,
+      refresh_expires_in:
+        tokenData.refresh_expires_in || null,
+      access_token_expires_at:
+        tokenData.expires_in
+          ? now + Number(tokenData.expires_in) * 1000
+          : null,
+      refresh_token_expires_at:
+        tokenData.refresh_expires_in
+          ? now + Number(tokenData.refresh_expires_in) * 1000
+          : null,
+      updated_at: new Date(now).toISOString()
+    };
+
+    await tokenStore.put(
+      `tiktok:${tokenData.open_id}`,
+      JSON.stringify(tokenRecord)
+    );
+
+    await tokenStore.put(
+      "primary",
+      tokenData.open_id
+    );
 
     return safeResponse(
       {
         ok: true,
         service: "MK KHAIRUL TikTok OAuth",
         message: "TikTok Connected Successfully",
-        open_id_received: Boolean(tokenData.open_id),
+        open_id_received: true,
         scope_received: tokenData.scope || "",
         access_token_received: true,
         refresh_token_received: true,
+        tokens_stored_securely: true,
         token_type: tokenData.token_type || "Bearer",
         expires_in: tokenData.expires_in || null,
         refresh_expires_in:
           tokenData.refresh_expires_in || null,
         note:
-          "Tokens were verified but are not displayed or stored yet."
+          "TikTok tokens are stored securely and are not displayed."
       },
       200,
       true
@@ -129,7 +185,8 @@
     return safeResponse(
       {
         ok: false,
-        error: "TikTok token exchange request failed."
+        error:
+          "TikTok token exchange or secure storage failed."
       },
       500,
       true
@@ -156,7 +213,11 @@ function parseCookies(cookieHeader) {
   return result;
 }
 
-function safeResponse(data, status = 200, clearState = false) {
+function safeResponse(
+  data,
+  status = 200,
+  clearState = false
+) {
   const headers = new Headers();
 
   headers.set(
