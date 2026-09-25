@@ -1,16 +1,10 @@
-export async function onRequestGet(context) {
+﻿export async function onRequestGet(context) {
   const clientKey = context.env.TIKTOK_CLIENT_KEY;
 
   if (!clientKey) {
-    return new Response(
-      JSON.stringify({
-        ok: false,
-        error: "TIKTOK_CLIENT_KEY is not configured"
-      }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" }
-      }
+    return jsonResponse(
+      { ok: false, error: "TikTok OAuth is not configured." },
+      500
     );
   }
 
@@ -22,9 +16,8 @@ export async function onRequestGet(context) {
 
   const state = crypto.randomUUID().replaceAll("-", "");
 
-  const authUrl = new URL(
-    "https://www.tiktok.com/v2/auth/authorize/"
-  );
+  const authUrl =
+    new URL("https://www.tiktok.com/v2/auth/authorize/");
 
   authUrl.searchParams.set("client_key", clientKey);
   authUrl.searchParams.set("scope", scope);
@@ -32,5 +25,23 @@ export async function onRequestGet(context) {
   authUrl.searchParams.set("redirect_uri", redirectUri);
   authUrl.searchParams.set("state", state);
 
-  return Response.redirect(authUrl.toString(), 302);
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: authUrl.toString(),
+      "Set-Cookie":
+        `tiktok_oauth_state=${state}; Path=/api/tiktok; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+      "Cache-Control": "no-store"
+    }
+  });
+}
+
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data, null, 2), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=UTF-8",
+      "Cache-Control": "no-store"
+    }
+  });
 }
