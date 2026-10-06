@@ -8,7 +8,8 @@ export async function onRequestGet({request,env}){
   if(!returned||!saved||returned!==saved) return redirect("/tiktok?error="+encodeURIComponent("OAuth state verification failed."));
   if(!code) return redirect("/tiktok?error="+encodeURIComponent("Authorization code was not received."));
   if(!env.TIKTOK_CLIENT_KEY||!env.TIKTOK_CLIENT_SECRET||!env.TIKTOK_TOKENS) return redirect("/tiktok?error="+encodeURIComponent("TikTok OAuth is not configured."));
-  const body=new URLSearchParams({client_key:env.TIKTOK_CLIENT_KEY,client_secret:env.TIKTOK_CLIENT_SECRET,code,grant_type:"authorization_code",redirect_uri:"https://mkkhairul.pages.dev/api/tiktok/callback"});
+  const redirectUri=url.origin+"/api/tiktok/callback";
+  const body=new URLSearchParams({client_key:env.TIKTOK_CLIENT_KEY,client_secret:env.TIKTOK_CLIENT_SECRET,code,grant_type:"authorization_code",redirect_uri:redirectUri});
   try{
     const r=await fetch("https://open.tiktokapis.com/v2/oauth/token/",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded","Cache-Control":"no-cache"},body:body.toString()});
     const t=await r.json();
