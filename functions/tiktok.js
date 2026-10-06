@@ -1,0 +1,37 @@
+export async function onRequestGet(){
+return new Response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Post to TikTok | MK KHAIRUL Property Tools</title>
+<style>body{margin:0;background:#071a2c;color:#fff;font:16px Arial,sans-serif}main{max-width:820px;margin:auto;padding:32px 18px}.card{background:#0b1f33;border:1px solid #5c5129;border-radius:18px;padding:22px;margin:14px 0}h1,h2{margin:.2em 0}.gold{color:#f2d675}.muted{color:#c7ced6}.row{display:flex;gap:12px;flex-wrap:wrap}button,.btn{background:#d4af37;color:#071a2c;border:0;border-radius:10px;padding:12px 16px;font-weight:800;cursor:pointer;text-decoration:none}input,textarea,select{width:100%;box-sizing:border-box;padding:12px;margin:7px 0 14px;border-radius:9px;border:1px solid #73808d;background:#fff;color:#111}label{font-weight:700}.preview{display:flex;gap:8px;flex-wrap:wrap}.preview img{width:120px;height:120px;object-fit:cover;border-radius:10px}.hidden{display:none}.status{white-space:pre-wrap;padding:12px;border-radius:9px;background:#03111e}.check{display:flex;gap:8px;align-items:flex-start;margin:10px 0}.check input{width:auto;margin:3px}.danger{color:#ffb4ab}</style></head>
+<body><main><div><b class="gold">MK KHAIRUL Property Tools</b><h1>Post to TikTok</h1><p class="muted">Connect your own TikTok account, upload your own photos, preview them, choose your posting settings and confirm before publishing.</p></div>
+<div class="card" id="connect"><h2>1. Connect TikTok</h2><p id="creator" class="muted">Checking connection…</p><a class="btn" href="/api/tiktok/login">Connect TikTok</a></div>
+<div class="card hidden" id="composer"><h2>2. Create your post</h2>
+<label>Photos (JPG/PNG/WEBP, up to 10)</label><input id="files" type="file" accept="image/jpeg,image/png,image/webp" multiple><button id="upload">Upload selected photos</button><p class="muted">Uploaded photos are temporary and expire automatically.</p><div id="preview" class="preview"></div>
+<label>Title</label><input id="title" maxlength="90" placeholder="Give your post a title">
+<label>Caption & hashtags</label><textarea id="desc" rows="5" maxlength="2200" placeholder="Write your caption and hashtags"></textarea>
+<label>Who can view this post?</label><select id="privacy"><option value="">Select privacy manually</option></select>
+<div class="check"><input id="comments" type="checkbox"><label for="comments">Allow comments</label></div>
+<div class="check"><input id="commercial" type="checkbox"><label for="commercial">This post promotes a business, product or service</label></div>
+<div id="commercialOpts" class="hidden"><div class="check"><input id="yourBrand" type="checkbox"><label for="yourBrand">Your Brand — promotes my own business</label></div><div class="check"><input id="branded" type="checkbox"><label for="branded">Branded Content — promotes a third party</label></div></div>
+<div class="check"><input id="aigc" type="checkbox"><label for="aigc">This content is AI-generated</label></div>
+<div class="check"><input id="consent" type="checkbox"><label id="consentLabel" for="consent">By posting, you agree to TikTok's Music Usage Confirmation and confirm that you have reviewed this content and want to publish it to the connected TikTok account.</label></div>
+<button id="publish">Post to TikTok</button><p id="status" class="status">Nothing has been posted yet.</p></div>
+<p class="muted"><a style="color:#f2d675" href="/">Property Tools</a> · <a style="color:#f2d675" href="/terms">Terms</a> · <a style="color:#f2d675" href="/privacy">Privacy</a></p>
+</main><script>
+const photos=[]; let creator=null;
+const el=id=>document.getElementById(id);
+function privacyLabel(x){return ({PUBLIC_TO_EVERYONE:"Everyone",MUTUAL_FOLLOW_FRIENDS:"Friends",FOLLOWER_OF_CREATOR:"Followers",SELF_ONLY:"Only me"})[x]||x.replaceAll("_"," ")}
+async function loadCreator(){
+ try{const r=await fetch("/api/tiktok/creator-info",{cache:"no-store"}),j=await r.json(); if(!j.ok) throw Error(j.error||j.message||"Not connected");
+ creator=j; el("creator").textContent="Connected as "+(j.creator_nickname||j.creator_username||"TikTok creator"); el("composer").classList.remove("hidden");
+ for(const p of j.privacy_level_options||[]){const o=document.createElement("option");o.value=p;o.textContent=privacyLabel(p);el("privacy").appendChild(o)}
+ if(j.comment_disabled){el("comments").disabled=true;el("comments").parentElement.title="Comments are disabled in this TikTok account."}
+ }catch(e){el("creator").textContent="Connect your TikTok account to continue."}
+}
+el("commercial").onchange=()=>{el("commercialOpts").classList.toggle("hidden",!el("commercial").checked);updateConsent()};
+["yourBrand","branded"].forEach(id=>el(id).onchange=updateConsent);
+function updateConsent(){const branded=el("branded").checked;el("consentLabel").textContent=branded?"By posting, you agree to TikTok's Branded Content Policy and Music Usage Confirmation, and confirm that you want to publish this content.":"By posting, you agree to TikTok's Music Usage Confirmation and confirm that you have reviewed this content and want to publish it to the connected TikTok account."}
+el("upload").onclick=async()=>{const fs=[...el("files").files].slice(0,10-photos.length);if(!fs.length)return;el("status").textContent="Uploading…";for(const f of fs){const fd=new FormData();fd.append("file",f);const r=await fetch("/api/tiktok/media-upload",{method:"POST",body:fd}),j=await r.json();if(!j.ok){el("status").textContent="Upload failed: "+j.error;return}photos.push(j.url);const im=document.createElement("img");im.src=j.url;im.alt="Post preview";el("preview").appendChild(im)}el("status").textContent=photos.length+" photo(s) ready. Review the preview before posting."};
+el("publish").onclick=async()=>{if(!el("consent").checked){el("status").textContent="Please confirm consent before posting.";return}if(!photos.length||!el("privacy").value){el("status").textContent="Upload at least one photo and select privacy.";return}el("publish").disabled=true;el("status").textContent="Sending to TikTok…";try{const body={title:el("title").value,description:el("desc").value,privacy_level:el("privacy").value,allow_comment:el("comments").checked,commercial:el("commercial").checked,your_brand:el("yourBrand").checked,branded_content:el("branded").checked,is_aigc:el("aigc").checked,consent:true,photo_images:photos};const r=await fetch("/api/tiktok/user-publish",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}),j=await r.json();el("status").textContent=j.ok?"Sent to TikTok. Publish ID: "+(j.publish_id||"received"):"Could not post: "+(j.error||"Unknown error");}catch(e){el("status").textContent="Could not post: "+e.message}finally{el("publish").disabled=false}};
+loadCreator();
+</script></body></html>`,{headers:{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store"}});
+}
