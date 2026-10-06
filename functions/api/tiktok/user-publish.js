@@ -1,6 +1,6 @@
 import {getValidTikTokAccessToken} from "../../_lib/tiktokAuth.js";
 import {getSessionOpenId,json} from "../../_lib/tiktokSession.js";
-const URL="https://open.tiktokapis.com/v2/post/publish/content/init/";
+const TIKTOK_PUBLISH_URL="https://open.tiktokapis.com/v2/post/publish/content/init/";
 export async function onRequestPost({request,env}){
   try{
     const {openId}=await getSessionOpenId(request,env);
@@ -11,8 +11,8 @@ export async function onRequestPost({request,env}){
     const privacy=String(b?.privacy_level||"").trim();
     const images=Array.isArray(b?.photo_images)?b.photo_images.filter(Boolean):[];
     if(!title || !privacy || !images.length || images.length>10) return json({ok:false,error:"Title, privacy and 1-10 photos are required."},400);
-    const origin=new URL(request.url).origin;
-    if(!images.every(x=>{try{const u=new URL(x);return u.origin===origin && u.pathname.startsWith("/tiktok-user-media/");}catch{return false;}}))
+    const origin=new globalThis.URL(request.url).origin;
+    if(!images.every(x=>{try{const u=new globalThis.URL(x);return u.origin===origin && u.pathname.startsWith("/tiktok-user-media/");}catch{return false;}}))
       return json({ok:false,error:"Please upload photos through this page before posting."},400);
     const auth=await getValidTikTokAccessToken(env,openId);
     const ci=await fetch("https://open.tiktokapis.com/v2/post/publish/creator_info/query/",{method:"POST",headers:{Authorization:`Bearer ${auth.accessToken}`,"Content-Type":"application/json; charset=UTF-8"}});
@@ -28,7 +28,7 @@ export async function onRequestPost({request,env}){
       source_info:{source:"PULL_FROM_URL",photo_cover_index:0,photo_images:images},
       post_mode:"DIRECT_POST",media_type:"PHOTO",is_aigc:b?.is_aigc===true
     };
-    const r=await fetch(URL,{method:"POST",headers:{Authorization:`Bearer ${auth.accessToken}`,"Content-Type":"application/json; charset=UTF-8"},body:JSON.stringify(payload)});
+    const r=await fetch(TIKTOK_PUBLISH_URL,{method:"POST",headers:{Authorization:`Bearer ${auth.accessToken}`,"Content-Type":"application/json; charset=UTF-8"},body:JSON.stringify(payload)});
     const j=await r.json();
     if(!r.ok || j?.error?.code!=="ok") return json({ok:false,error:j?.error?.message||"TikTok publish initialization failed.",tiktok_error:j?.error?.code||null},r.status||400);
     return json({ok:true,publish_id:j?.data?.publish_id||null,message:"Content sent to TikTok."});
