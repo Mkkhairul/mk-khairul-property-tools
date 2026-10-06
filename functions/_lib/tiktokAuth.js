@@ -3,7 +3,7 @@ const TIKTOK_TOKEN_URL =
 
 const REFRESH_BUFFER_MS = 10 * 60 * 1000;
 
-export async function getValidTikTokAccessToken(env) {
+export async function getValidTikTokAccessToken(env, requestedOpenId = null) {
   const tokenStore = env.TIKTOK_TOKENS;
   const clientKey = env.TIKTOK_CLIENT_KEY;
   const clientSecret = env.TIKTOK_CLIENT_SECRET;
@@ -20,11 +20,11 @@ export async function getValidTikTokAccessToken(env) {
     );
   }
 
-  const openId = await tokenStore.get("primary");
+  const openId = requestedOpenId || await tokenStore.get("primary");
 
   if (!openId) {
     throw new Error(
-      "No primary TikTok account is connected."
+      "No TikTok account is connected."
     );
   }
 
@@ -79,7 +79,8 @@ export async function getValidTikTokAccessToken(env) {
     clientKey,
     clientSecret,
     openId,
-    tokenRecord
+    tokenRecord,
+    updatePrimary: !requestedOpenId
   });
 }
 
@@ -88,7 +89,8 @@ async function refreshTikTokAccessToken({
   clientKey,
   clientSecret,
   openId,
-  tokenRecord
+  tokenRecord,
+  updatePrimary = false
 }) {
   const body = new URLSearchParams();
 
@@ -190,10 +192,12 @@ async function refreshTikTokAccessToken({
     JSON.stringify(refreshedRecord)
   );
 
-  await tokenStore.put(
-    "primary",
-    refreshedOpenId
-  );
+  if (updatePrimary) {
+    await tokenStore.put(
+      "primary",
+      refreshedOpenId
+    );
+  }
 
   if (refreshedRecordKey !== `tiktok:${openId}`) {
     await tokenStore.delete(
