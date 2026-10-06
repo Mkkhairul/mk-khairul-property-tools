@@ -8,6 +8,9 @@
     );
   }
 
+  // TikTok only accepts redirect URIs registered in the developer app.
+  // Keep OAuth on the canonical production origin even when the public
+  // TikTok page is opened from a Cloudflare Preview deployment.
   const redirectUri =
     "https://mkkhairul.pages.dev/api/tiktok/callback";
 
