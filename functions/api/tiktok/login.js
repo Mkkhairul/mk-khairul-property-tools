@@ -8,11 +8,11 @@
     );
   }
 
-  // TikTok only accepts redirect URIs registered in the developer app.
-  // Keep OAuth on the canonical production origin even when the public
-  // TikTok page is opened from a Cloudflare Preview deployment.
-  const redirectUri =
-    "https://mkkhairul.pages.dev/api/tiktok/callback";
+  // Use the same origin that started OAuth so the state cookie remains
+  // first-party on the callback. Register the stable Preview branch alias
+  // and Production callback separately in TikTok Login Kit.
+  const origin = new URL(context.request.url).origin;
+  const redirectUri = origin + "/api/tiktok/callback";
 
   const scope =
     "user.info.basic,video.publish,video.upload";
