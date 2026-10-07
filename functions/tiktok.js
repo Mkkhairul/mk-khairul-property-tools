@@ -5,7 +5,7 @@ return new Response(`<!doctype html><html><head><meta charset="utf-8"><meta name
 <body><main><div><b class="gold">MK KHAIRUL Property Tools</b><h1>Post to TikTok</h1><p class="muted">Connect your own TikTok account, upload your own photos, preview them, choose your posting settings and confirm before publishing.</p></div>
 <div class="card" id="connect"><h2>1. Connect TikTok</h2><p id="creator" class="muted">Checking connection…</p><a class="btn" href="/api/tiktok/login">Connect TikTok</a></div>
 <div class="card hidden" id="composer"><h2>2. Create your post</h2>
-<label>Photos (JPG/PNG/WEBP, up to 10)</label><input id="files" type="file" accept="image/jpeg,image/png,image/webp" multiple><button id="upload">Upload selected photos</button><p class="muted">Uploaded photos are temporary and expire automatically.</p><div id="preview" class="preview"></div>
+<label>Photos (JPG/JPEG/WEBP, up to 10)</label><input id="files" type="file" accept="image/jpeg,image/webp" multiple><button id="upload">Upload selected photos</button><p class="muted">Uploaded photos are temporary and expire automatically.</p><div id="preview" class="preview"></div>
 <label>Title</label><input id="title" maxlength="90" placeholder="Give your post a title">
 <label>Caption & hashtags</label><textarea id="desc" rows="5" maxlength="2200" placeholder="Write your caption and hashtags"></textarea>
 <label>Who can view this post?</label><select id="privacy"><option value="">Select privacy manually</option></select>
