@@ -7,7 +7,7 @@ export async function onRequestPost({request,env}){
     const file=form.get("file");
     if(!file || typeof file.arrayBuffer!=="function") return json({ok:false,error:"Choose a JPG, JPEG, PNG or WEBP image."},400);
     const type=String(file.type||"").toLowerCase();
-    if(!["image/jpeg","image/png","image/webp"].includes(type)) return json({ok:false,error:"Only JPG, PNG or WEBP images are supported."},400);
+    if(!["image/jpeg","image/webp"].includes(type)) return json({ok:false,error:"TikTok photo posts support JPG/JPEG or WEBP images. Please convert PNG files to JPG or WEBP before uploading."},400);
     if(file.size<1 || file.size>MAX) return json({ok:false,error:"Image must be 10 MB or smaller."},400);
     const id=crypto.randomUUID().replaceAll("-","");
     const key=`media:${id}`;
